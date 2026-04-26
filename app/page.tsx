@@ -4,7 +4,8 @@ import { useDropzone } from 'react-dropzone';
 import { parseGedcom, GedcomData, Person } from './lib/parseGedcom';
 import { buildDescendantTree, TreeNode } from './lib/buildTree';
 import { pdf } from '@react-pdf/renderer';
-import { TreePdf } from './lib/TreePdf';
+import { TreePdf, PageFormat } from './lib/TreePdf';
+
 
 export default function Home() {
   const [status, setStatus]             = useState<'idle'|'parsing'|'done'|'error'>('idle');
@@ -14,6 +15,7 @@ export default function Home() {
   const [rootPerson, setRootPerson]     = useState<Person | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const [tree, setTree]                 = useState<TreeNode | null>(null);
+  const [pageFormat, setPageFormat] = useState<'A4L'|'A3L'|'A1L'|'A0L'>('A4L');
 
   const onDrop = useCallback((files: File[]) => {
     const file = files[0];
@@ -57,15 +59,18 @@ export default function Home() {
   }
 
   async function downloadPdf() {
-    if (!tree || !rootPerson) return;
-    const blob = await pdf(<TreePdf root={tree} />).toBlob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `family-tree-${rootPerson.lastName}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  if (!tree || !rootPerson) return;
+  const blob = await pdf(<TreePdf root={tree} format={pageFormat} />).toBlob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `family-tree-${rootPerson.lastName}-${pageFormat}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+  
+
+
 
   return (
     <main className="min-h-screen bg-gray-50 p-8">
