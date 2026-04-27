@@ -5,7 +5,8 @@ import * as XLSX from 'xlsx';
 import { parseGedcom, GedcomData, Person } from './lib/parseGedcom';
 import { buildDescendantTree, TreeNode } from './lib/buildTree';
 import { pdf } from '@react-pdf/renderer';
-import { TreePdf, PageFormat } from './lib/TreePdf';
+import { TreePdf, PageFormat, Lang } from './lib/TreePdf';
+import { TreeSettings, defaultSettings } from './lib/treeSettings';
 
 export default function Home() {
   const [status, setStatus]             = useState<'idle'|'parsing'|'done'|'error'>('idle');
@@ -17,7 +18,9 @@ export default function Home() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [tree, setTree]                 = useState<TreeNode | null>(null);
   const [pageFormat, setPageFormat]     = useState<PageFormat>('A4L');
-  const [lang, setLang]                 = useState<'all'|'he'|'en'>('he');
+  const [lang, setLang]                 = useState<Lang>('he');
+  const [settings, setSettings]         = useState<TreeSettings>(defaultSettings);
+  const [showSettings, setShowSettings] = useState(false);
 
   // ── Load persisted data on first render ──────────────────────
   useEffect(() => {
@@ -26,12 +29,14 @@ export default function Home() {
       const savedRaw    = localStorage.getItem('gedcom_raw');
       const savedRoot   = localStorage.getItem('gedcom_root');
       const savedFormat = localStorage.getItem('gedcom_format');
+      const savedSettings = localStorage.getItem('gedcom_settings');
       if (saved) {
         const parsed: GedcomData = JSON.parse(saved);
         setData(parsed);
         setStatus('done');
-        if (savedRaw)    setRawGedcom(savedRaw);
-        if (savedFormat) setPageFormat(savedFormat as PageFormat);
+        if (savedRaw)      setRawGedcom(savedRaw);
+        if (savedFormat)   setPageFormat(savedFormat as PageFormat);
+        if (savedSettings) setSettings(JSON.parse(savedSettings));
         if (savedRoot) {
           const person: Person = JSON.parse(savedRoot);
           setRootPerson(person);
@@ -43,7 +48,7 @@ export default function Home() {
     } catch { /* ignore */ }
   }, []);
 
-  // ── Persist whenever data/raw/root/format changes ─────────────
+  // ── Persist whenever state changes ───────────────────────────
   useEffect(() => {
     if (data) localStorage.setItem('gedcom_data', JSON.stringify(data));
   }, [data]);
@@ -59,6 +64,10 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem('gedcom_format', pageFormat);
   }, [pageFormat]);
+
+  useEffect(() => {
+    localStorage.setItem('gedcom_settings', JSON.stringify(settings));
+  }, [settings]);
 
   // ── GEDCOM file drop ──────────────────────────────────────────
   const onDrop = useCallback((files: File[]) => {
@@ -117,6 +126,13 @@ export default function Home() {
     });
   }, [data, tableSearch, lang]);
 
+  // ── Display name helper ───────────────────────────────────────
+  function displayName(p: Person): string {
+    if (lang === 'he') return `${p.firstNameHe} ${p.lastNameHe}`.trim();
+    if (lang === 'en') return `${p.firstNameEn} ${p.lastNameEn}`.trim();
+    return `${p.firstName} ${p.lastName}`.trim();
+  }
+
   // ── Select root person ────────────────────────────────────────
   function selectPerson(p: Person) {
     setRootPerson(p);
@@ -131,7 +147,9 @@ export default function Home() {
   // ── Download PDF ──────────────────────────────────────────────
   async function downloadPdf() {
     if (!tree || !rootPerson) return;
-    const blob = await pdf(<TreePdf root={tree} format={pageFormat} lang={lang} />).toBlob();
+    const blob = await pdf(
+      <TreePdf root={tree} format={pageFormat} lang={lang} settings={settings} />
+    ).toBlob();
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
@@ -150,6 +168,7 @@ export default function Home() {
     setTree(null);
     setSearch('');
     setTableSearch('');
+    setSettings(defaultSettings);
   }
 
   // ── Export to Excel ───────────────────────────────────────────
@@ -159,7 +178,7 @@ export default function Home() {
     const lines = rawGedcom.split(/\r?\n/);
     const rows: Record<string, string>[] = [];
     let current: Record<string, string> = {};
-    let lastTag1 = '';
+    let lastTag1  = '';
     let nameCount = 0;
 
     for (const line of lines) {
@@ -182,7 +201,7 @@ export default function Home() {
         lastTag1 = tag;
         if (tag === 'NAME') {
           nameCount++;
-          const key = nameCount === 1 ? 'NAME_1' : `NAME_${nameCount}`;
+          const key = `NAME_${nameCount}`;
           if (value) current[key] = value;
         } else {
           if (value) current[tag] = value;
@@ -199,11 +218,9 @@ export default function Home() {
     XLSX.writeFile(wb, 'gedcom-raw.xlsx');
   }
 
-  // ── Display name helper ───────────────────────────────────────
-  function displayName(p: Person): string {
-    if (lang === 'he') return `${p.firstNameHe} ${p.lastNameHe}`.trim();
-    if (lang === 'en') return `${p.firstNameEn} ${p.lastNameEn}`.trim();
-    return `${p.firstName} ${p.lastName}`.trim();
+  // ── Settings updater helper ───────────────────────────────────
+  function setSetting<K extends keyof TreeSettings>(key: K, value: TreeSettings[K]) {
+    setSettings(s => ({ ...s, [key]: value }));
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -236,7 +253,7 @@ export default function Home() {
         <p className="text-center text-blue-600 animate-pulse mt-12">Parsing your file…</p>
       )}
 
-      {/* ── Main UI after file loaded ── */}
+      {/* ── Main UI ── */}
       {status === 'done' && data && (
         <div className="max-w-4xl mx-auto">
 
@@ -250,22 +267,16 @@ export default function Home() {
               <p className="text-3xl font-bold">{data.families.length}</p>
               <p className="text-sm opacity-80">Families</p>
             </div>
-            <button
-              onClick={exportToExcel}
-              className="bg-green-100 hover:bg-green-200 text-green-700 rounded-xl px-4 py-4 text-sm font-semibold"
-            >
+            <button onClick={exportToExcel}
+              className="bg-green-100 hover:bg-green-200 text-green-700 rounded-xl px-4 py-4 text-sm font-semibold">
               📊 Export Excel
             </button>
-            <button
-              onClick={clearAll}
-              className="bg-red-100 hover:bg-red-200 text-red-700 rounded-xl px-4 py-4 text-sm font-semibold"
-            >
+            <button onClick={clearAll}
+              className="bg-red-100 hover:bg-red-200 text-red-700 rounded-xl px-4 py-4 text-sm font-semibold">
               🗑 Clear saved data
             </button>
-            <button
-              onClick={() => setStatus('idle')}
-              className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl px-4 py-4 text-sm font-semibold"
-            >
+            <button onClick={() => setStatus('idle')}
+              className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl px-4 py-4 text-sm font-semibold">
               📂 Load new file
             </button>
           </div>
@@ -274,16 +285,129 @@ export default function Home() {
           <div className="flex gap-2 mb-4 items-center">
             <span className="text-sm text-gray-500 font-medium">Show names:</span>
             {(['all', 'he', 'en'] as const).map(l => (
-              <button
-                key={l}
-                onClick={() => setLang(l)}
+              <button key={l} onClick={() => setLang(l)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors
-                  ${lang === l ? 'bg-blue-700 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
-              >
+                  ${lang === l ? 'bg-blue-700 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
                 {l === 'all' ? '🌐 All' : l === 'he' ? '🇮🇱 Hebrew' : '🇬🇧 English'}
               </button>
             ))}
           </div>
+
+          {/* Settings toggle */}
+          <div className="mb-4">
+            <button onClick={() => setShowSettings(s => !s)}
+              className="bg-white shadow rounded-xl px-4 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-50">
+              ⚙️ {showSettings ? 'Hide' : 'Show'} PDF Layout Settings
+            </button>
+          </div>
+
+          {/* Settings panel */}
+          {showSettings && (
+            <div className="bg-white rounded-2xl shadow p-6 mb-6 grid grid-cols-2 gap-5 text-sm">
+              <h3 className="col-span-2 font-bold text-blue-900 text-base border-b pb-2">
+                PDF Layout Settings
+              </h3>
+
+              {/* Font sizes */}
+              <label className="flex flex-col gap-1 text-gray-600">
+                Name font size ({settings.nameFontSize}pt)
+                <input type="range" min={6} max={14} value={settings.nameFontSize}
+                  onChange={e => setSetting('nameFontSize', +e.target.value)} />
+              </label>
+              <label className="flex flex-col gap-1 text-gray-600">
+                Detail font size ({settings.detailFontSize}pt)
+                <input type="range" min={4} max={10} value={settings.detailFontSize}
+                  onChange={e => setSetting('detailFontSize', +e.target.value)} />
+              </label>
+
+              {/* Card size */}
+              <label className="flex flex-col gap-1 text-gray-600">
+                Card width ({settings.cardWidth}px)
+                <input type="range" min={80} max={200} value={settings.cardWidth}
+                  onChange={e => setSetting('cardWidth', +e.target.value)} />
+              </label>
+              <label className="flex flex-col gap-1 text-gray-600">
+                Card height ({settings.cardHeight}px)
+                <input type="range" min={40} max={120} value={settings.cardHeight}
+                  onChange={e => setSetting('cardHeight', +e.target.value)} />
+              </label>
+
+              {/* Spacing */}
+              <label className="flex flex-col gap-1 text-gray-600">
+                Vertical spacing ({settings.vGap}px)
+                <input type="range" min={20} max={120} value={settings.vGap}
+                  onChange={e => setSetting('vGap', +e.target.value)} />
+              </label>
+              <label className="flex flex-col gap-1 text-gray-600">
+                Horizontal spacing ({settings.hGap}px)
+                <input type="range" min={10} max={80} value={settings.hGap}
+                  onChange={e => setSetting('hGap', +e.target.value)} />
+              </label>
+
+              {/* Corner radius */}
+              <label className="flex flex-col gap-1 text-gray-600">
+                Corner radius ({settings.borderRadius}px)
+                <input type="range" min={0} max={20} value={settings.borderRadius}
+                  onChange={e => setSetting('borderRadius', +e.target.value)} />
+              </label>
+
+              {/* Border */}
+              <label className="flex items-center gap-2 text-gray-600">
+                <input type="checkbox" checked={settings.showBorder}
+                  onChange={e => setSetting('showBorder', e.target.checked)} />
+                Show box border
+              </label>
+
+              {/* Colors */}
+              <label className="flex flex-col gap-1 text-gray-600">
+                Border / outline color
+                <input type="color" value={settings.borderColor}
+                  onChange={e => setSetting('borderColor', e.target.value)}
+                  className="h-8 w-16 rounded cursor-pointer" />
+              </label>
+              <label className="flex flex-col gap-1 text-gray-600">
+                Connection line color
+                <input type="color" value={settings.lineColor}
+                  onChange={e => setSetting('lineColor', e.target.value)}
+                  className="h-8 w-16 rounded cursor-pointer" />
+              </label>
+              <label className="flex flex-col gap-1 text-gray-600">
+                Male card color
+                <input type="color" value={settings.maleColor}
+                  onChange={e => setSetting('maleColor', e.target.value)}
+                  className="h-8 w-16 rounded cursor-pointer" />
+              </label>
+              <label className="flex flex-col gap-1 text-gray-600">
+                Female card color
+                <input type="color" value={settings.femaleColor}
+                  onChange={e => setSetting('femaleColor', e.target.value)}
+                  className="h-8 w-16 rounded cursor-pointer" />
+              </label>
+
+              {/* Content toggles */}
+              <label className="flex items-center gap-2 text-gray-600">
+                <input type="checkbox" checked={settings.showBirthPlace}
+                  onChange={e => setSetting('showBirthPlace', e.target.checked)} />
+                Show birth place
+              </label>
+              <label className="flex items-center gap-2 text-gray-600">
+                <input type="checkbox" checked={settings.showDeathDate}
+                  onChange={e => setSetting('showDeathDate', e.target.checked)} />
+                Show death date
+              </label>
+              <label className="flex items-center gap-2 text-gray-600">
+                <input type="checkbox" checked={settings.showMarriageDate}
+                  onChange={e => setSetting('showMarriageDate', e.target.checked)} />
+                Show marriage date
+              </label>
+
+              {/* Reset */}
+              <button onClick={() => setSettings(defaultSettings)}
+                className="col-span-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg px-4 py-2 font-medium mt-2">
+                ↺ Reset to defaults
+              </button>
+            </div>
+          )}
 
           {/* Root person selector */}
           <div className="bg-white rounded-2xl shadow p-6 mb-6">
@@ -304,13 +428,14 @@ export default function Home() {
               {showDropdown && suggestions.length > 0 && (
                 <div className="absolute z-10 w-full bg-white border border-gray-200 rounded-xl shadow-lg mt-1 overflow-hidden">
                   {suggestions.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={() => selectPerson(p)}
-                      className="w-full text-left px-4 py-3 hover:bg-blue-50 text-sm border-b border-gray-100 last:border-0"
-                    >
-                      <span className="font-medium">{p.firstNameHe || p.firstNameEn} {p.lastNameHe || p.lastNameEn}</span>
-                      <span className="text-gray-400 ml-2 text-xs">{p.firstNameEn} {p.lastNameEn}</span>
+                    <button key={p.id} onClick={() => selectPerson(p)}
+                      className="w-full text-left px-4 py-3 hover:bg-blue-50 text-sm border-b border-gray-100 last:border-0">
+                      <span className="font-medium">
+                        {p.firstNameHe || p.firstNameEn} {p.lastNameHe || p.lastNameEn}
+                      </span>
+                      <span className="text-gray-400 ml-2 text-xs">
+                        {p.firstNameEn} {p.lastNameEn}
+                      </span>
                       <span className="text-gray-400 ml-2">{p.birthDate || ''}</span>
                     </button>
                   ))}
@@ -324,20 +449,16 @@ export default function Home() {
                 <span className="text-sm text-green-600 font-medium">
                   ✅ Tree ready for {rootPerson.firstName} {rootPerson.lastName}
                 </span>
-                <select
-                  value={pageFormat}
+                <select value={pageFormat}
                   onChange={e => setPageFormat(e.target.value as PageFormat)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                >
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                   <option value="A4L">A4 Landscape</option>
                   <option value="A3L">A3 Landscape</option>
                   <option value="A1L">A1 (Plotter)</option>
                   <option value="A0L">A0 (Plotter)</option>
                 </select>
-                <button
-                  onClick={downloadPdf}
-                  className="bg-blue-700 hover:bg-blue-800 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-colors"
-                >
+                <button onClick={downloadPdf}
+                  className="bg-blue-700 hover:bg-blue-800 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-colors">
                   ⬇ Download PDF
                 </button>
               </div>
@@ -345,11 +466,8 @@ export default function Home() {
           </div>
 
           {/* Table search */}
-          <input
-            type="text"
-            placeholder="Search table by name…"
-            value={tableSearch}
-            onChange={e => setTableSearch(e.target.value)}
+          <input type="text" placeholder="Search table by name…"
+            value={tableSearch} onChange={e => setTableSearch(e.target.value)}
             className="w-full border border-gray-300 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
 
@@ -368,21 +486,17 @@ export default function Home() {
               </thead>
               <tbody>
                 {filtered.map((p, i) => (
-                  <tr
-                    key={p.id}
+                  <tr key={p.id}
                     className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
-                      ${rootPerson?.id === p.id ? 'ring-2 ring-inset ring-blue-400' : ''}`}
-                  >
+                      ${rootPerson?.id === p.id ? 'ring-2 ring-inset ring-blue-400' : ''}`}>
                     <td className="px-4 py-2 font-medium">{displayName(p)}</td>
                     <td className="px-4 py-2 text-gray-500">{p.sex === 'M' ? '♂' : p.sex === 'F' ? '♀' : '—'}</td>
                     <td className="px-4 py-2 text-gray-500">{p.birthDate || '—'}</td>
                     <td className="px-4 py-2 text-gray-500">{p.birthPlace || '—'}</td>
                     <td className="px-4 py-2 text-gray-500">{p.deathDate || '—'}</td>
                     <td className="px-4 py-2">
-                      <button
-                        onClick={() => selectPerson(p)}
-                        className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-3 py-1 rounded-lg"
-                      >
+                      <button onClick={() => selectPerson(p)}
+                        className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-3 py-1 rounded-lg">
                         Set as root
                       </button>
                     </td>
