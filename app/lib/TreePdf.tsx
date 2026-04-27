@@ -1,6 +1,7 @@
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet, Font, Svg, Line } from '@react-pdf/renderer';
 import { TreeNode } from './buildTree';
+import { Person } from './parseGedcom';
 
 Font.register({
   family: 'NotoHebrew',
@@ -15,19 +16,18 @@ const BLUE       = '#1e3a5f';
 const LIGHT      = '#e8f0fb';
 const PINK       = '#fce8f0';
 const LINE_COLOR = '#94a3b8';
-const PURPLE     = '#7c3aed';
 
-// Card dimensions
-const CARD_W     = 110;  // single person card width
-const CARD_H     = 62;   // card height
-const SPOUSE_GAP = 18;   // gap between husband and wife cards (for ⚭ symbol)
-const COUPLE_W   = CARD_W * 2 + SPOUSE_GAP; // total width of a couple block
-const H_GAP      = 20;   // horizontal gap between sibling couples
-const V_GAP      = 60;   // vertical gap between generations
+const CARD_W     = 110;
+const CARD_H     = 62;
+const SPOUSE_GAP = 36;
+const COUPLE_W   = CARD_W * 2 + SPOUSE_GAP;
+const H_GAP      = 20;
+const V_GAP      = 60;
 const MARGIN     = 30;
 const HEADER     = 38;
 
 export type PageFormat = 'A4L' | 'A3L' | 'A1L' | 'A0L';
+export type Lang = 'all' | 'he' | 'en';
 
 const PAGE_SIZES: Record<PageFormat, [number, number]> = {
   A4L: [841.89, 595.28],
@@ -37,13 +37,12 @@ const PAGE_SIZES: Record<PageFormat, [number, number]> = {
 };
 
 // ── Layout engine ─────────────────────────────────────────────────
-// x = center of the COUPLE block (or single card if no spouse)
 
 interface LayoutNode {
   node: TreeNode;
-  x: number;       // center x of this block
-  y: number;       // top y of this block
-  width: number;   // total subtree width
+  x: number;
+  y: number;
+  width: number;
   children: LayoutNode[];
 }
 
@@ -63,16 +62,13 @@ function buildLayout(node: TreeNode, x: number, y: number): LayoutNode {
   const allChildren = node.families.flatMap(f => f.children);
   const childY = y + CARD_H + V_GAP;
   const childLayouts: LayoutNode[] = [];
-
   const totalChildW = allChildren.reduce((sum, c) => sum + subtreeWidth(c), 0);
   let cursor = x - totalChildW / 2;
-
   for (const child of allChildren) {
     const w = subtreeWidth(child);
     childLayouts.push(buildLayout(child, cursor + w / 2, childY));
     cursor += w;
   }
-
   return { node, x, y, width: subtreeWidth(node), children: childLayouts };
 }
 
@@ -88,18 +84,27 @@ interface Connection {
 }
 
 function collectConnections(layout: LayoutNode, result: Connection[] = []): Connection[] {
-  // Connection drops from center-bottom of the couple block
   const parentBottomY = layout.y + CARD_H;
   for (const child of layout.children) {
-    result.push({
-      parentX: layout.x,
-      parentBottomY,
-      childX: child.x,
-      childTopY: child.y,
-    });
+    result.push({ parentX: layout.x, parentBottomY, childX: child.x, childTopY: child.y });
     collectConnections(child, result);
   }
   return result;
+}
+
+// ── Name helper ───────────────────────────────────────────────────
+
+function getDisplayName(person: Person, lang: Lang): string {
+  if (lang === 'he') {
+    const name = `${person.firstNameHe || ''} ${person.lastNameHe || ''}`.trim();
+    if (name.length > 0) return name;
+  }
+  if (lang === 'en') {
+    const name = `${person.firstNameEn || ''} ${person.lastNameEn || ''}`.trim();
+    if (name.length > 0) return name;
+  }
+  // fallback to primary name
+  return `${person.firstName} ${person.lastName}`.trim();
 }
 
 // ── Styles ────────────────────────────────────────────────────────
@@ -116,8 +121,8 @@ const styles = StyleSheet.create({
   cardN:    { backgroundColor: '#f1f5f9', borderLeft: '3pt solid #94a3b8' },
   name:     { fontSize: 8, fontWeight: 'bold', color: BLUE, fontFamily: FONT, marginBottom: 2 },
   detail:   { fontSize: 6, color: '#64748b', fontFamily: FONT, marginBottom: 1 },
-  symbol:   { position: 'absolute', fontSize: 10, color: PURPLE, fontFamily: FONT },
-  mdate:    { position: 'absolute', fontSize: 5, color: PURPLE, fontFamily: FONT, textAlign: 'center' },
+  symbol:   { position: 'absolute', fontSize: 10, fontFamily: FONT },
+  mdate:    { position: 'absolute', fontSize: 7, color: '#1a1a1a', fontFamily: FONT, textAlign: 'center' },
 });
 
 function cardStyle(sex: string) {
@@ -126,12 +131,15 @@ function cardStyle(sex: string) {
   return [styles.card, styles.cardN];
 }
 
-function PersonCard({ person, left, top }: {
-  person: TreeNode['person']; left: number; top: number;
+// ── Person card ───────────────────────────────────────────────────
+
+function PersonCard({ person, left, top, lang }: {
+  person: Person; left: number; top: number; lang: Lang;
 }) {
+  const displayName = getDisplayName(person, lang);
   return (
     <View style={[...cardStyle(person.sex), { left, top }]}>
-      <Text style={styles.name}>{person.firstName} {person.lastName}</Text>
+      <Text style={styles.name}>{displayName}</Text>
       {!!person.birthDate  && <Text style={styles.detail}>b. {person.birthDate}</Text>}
       {!!person.birthPlace && <Text style={styles.detail}>{person.birthPlace}</Text>}
       {!!person.deathDate  && <Text style={styles.detail}>d. {person.deathDate}</Text>}
@@ -139,11 +147,15 @@ function PersonCard({ person, left, top }: {
   );
 }
 
-// ── Main PDF ──────────────────────────────────────────────────────
+// ── Main PDF component ────────────────────────────────────────────
 
-interface Props { root: TreeNode; format?: PageFormat; }
+interface Props {
+  root: TreeNode;
+  format?: PageFormat;
+  lang?: Lang;
+}
 
-export function TreePdf({ root, format = 'A4L' }: Props) {
+export function TreePdf({ root, format = 'A4L', lang = 'he' }: Props) {
   const [pageW, pageH] = PAGE_SIZES[format];
   const usableW = pageW - MARGIN * 2;
 
@@ -151,7 +163,6 @@ export function TreePdf({ root, format = 'A4L' }: Props) {
   const flat   = flattenLayout(layout);
   const conns  = collectConnections(layout);
 
-  // Shift everything right if any card goes negative
   const minX  = Math.min(...flat.map(n => n.x - COUPLE_W / 2));
   const shift = minX < 0 ? -minX + H_GAP : 0;
 
@@ -161,18 +172,21 @@ export function TreePdf({ root, format = 'A4L' }: Props) {
   const canvasW = Math.max(usableW, maxX + H_GAP);
   const canvasH = maxY + V_GAP;
 
+  const rootName = getDisplayName(root.person, lang);
+
   return (
     <Document>
       <Page
-        size={[Math.max(pageW, canvasW + MARGIN * 2), Math.max(pageH, canvasH + HEADER + MARGIN * 2)]}
+        size={[
+          Math.max(pageW, canvasW + MARGIN * 2),
+          Math.max(pageH, canvasH + HEADER + MARGIN * 2),
+        ]}
         style={styles.page}
         wrap={false}
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>
-            Family Tree — {root.person.firstName} {root.person.lastName}
-          </Text>
+          <Text style={styles.title}>Family Tree — {rootName}</Text>
           <Text style={styles.subtitle}>
             Generated {new Date().toLocaleDateString()} · {format}
           </Text>
@@ -181,63 +195,74 @@ export function TreePdf({ root, format = 'A4L' }: Props) {
         {/* Canvas */}
         <View style={[styles.canvas, { width: canvasW, height: canvasH }]}>
 
-          {/* SVG lines */}
+          {/* SVG connecting lines */}
           <Svg width={canvasW} height={canvasH} style={{ position: 'absolute', top: 0, left: 0 }}>
             {conns.map((c, i) => {
-              const px  = c.parentX + shift;
-              const cx  = c.childX  + shift;
+              const px   = c.parentX + shift;
+              const cx   = c.childX  + shift;
               const midY = (c.parentBottomY + c.childTopY) / 2;
               return (
                 <React.Fragment key={i}>
-                  <Line x1={px} y1={c.parentBottomY} x2={px} y2={midY}
-                    stroke={LINE_COLOR} strokeWidth={1} />
-                  <Line x1={px} y1={midY} x2={cx} y2={midY}
-                    stroke={LINE_COLOR} strokeWidth={1} />
-                  <Line x1={cx} y1={midY} x2={cx} y2={c.childTopY}
-                    stroke={LINE_COLOR} strokeWidth={1} />
+                  <Line x1={px} y1={c.parentBottomY} x2={px} y2={midY} stroke={LINE_COLOR} strokeWidth={1} />
+                  <Line x1={px} y1={midY}            x2={cx} y2={midY} stroke={LINE_COLOR} strokeWidth={1} />
+                  <Line x1={cx} y1={midY}            x2={cx} y2={c.childTopY} stroke={LINE_COLOR} strokeWidth={1} />
                 </React.Fragment>
               );
             })}
           </Svg>
 
-          {/* Couple blocks */}
+          {/* Couple / single blocks */}
           {flat.map((item, i) => {
             const fam    = item.node.families[0];
             const spouse = fam?.spouse ?? null;
-            const cx     = item.x + shift; // center x of this block
+            const cx     = item.x + shift;
             const top    = item.y;
 
             if (spouse) {
-              // Couple: husband left, ⚭ in middle, wife right
-              const husbLeft   = cx - COUPLE_W / 2;
-              const symbolLeft = cx - SPOUSE_GAP / 2 - 4;
-              const wifeLeft   = cx + SPOUSE_GAP / 2;
+              const husbLeft = cx - COUPLE_W / 2;
+              const wifeLeft = cx + SPOUSE_GAP / 2;
+              const lineLeft = cx - SPOUSE_GAP / 2;
+              const lineMidY = CARD_H / 2;
+
+              const dateParts   = (fam?.marriageDate || '').split(' ');
+              const hasFullDate = dateParts.length === 3;
+              const dayMonth    = hasFullDate ? `${dateParts[0]} ${dateParts[1]}` : '';
+              const year        = hasFullDate ? dateParts[2] : fam?.marriageDate || '';
 
               return (
                 <React.Fragment key={i}>
-                  <PersonCard person={item.node.person} left={husbLeft} top={top} />
-                  {/* Marriage symbol */}
-                  <Text style={[styles.symbol, { left: symbolLeft, top: top + CARD_H / 2 - 8 }]}>
+                  <PersonCard person={item.node.person} left={husbLeft} top={top} lang={lang} />
+
+                  {/* Connecting line */}
+                  <Svg width={SPOUSE_GAP} height={CARD_H} style={{ position: 'absolute', left: lineLeft, top }}>
+                    <Line x1={0} y1={lineMidY} x2={SPOUSE_GAP} y2={lineMidY} stroke="#1a1a1a" strokeWidth={1.5} />
+                  </Svg>
+
+                  {/* ⚭ symbol */}
+                  <Text style={[styles.symbol, { left: cx - 6, top: top + lineMidY - 18, color: '#1a1a1a' }]}>
                     ⚭
                   </Text>
-                  {/* Marriage date below symbol */}
-                  {!!fam?.marriageDate && (
-                    <Text style={[styles.mdate, { left: symbolLeft - 6, top: top + CARD_H / 2 + 4, width: SPOUSE_GAP + 12 }]}>
-                      {fam.marriageDate}
+
+                  {/* Day/month above line */}
+                  {!!dayMonth && (
+                    <Text style={[styles.mdate, { left: lineLeft, top: top + lineMidY - 9, width: SPOUSE_GAP }]}>
+                      {dayMonth}
                     </Text>
                   )}
-                  <PersonCard person={spouse} left={wifeLeft} top={top} />
+
+                  {/* Year below line */}
+                  {!!year && (
+                    <Text style={[styles.mdate, { left: lineLeft, top: top + lineMidY + 3, width: SPOUSE_GAP }]}>
+                      {year}
+                    </Text>
+                  )}
+
+                  <PersonCard person={spouse} left={wifeLeft} top={top} lang={lang} />
                 </React.Fragment>
               );
             } else {
-              // Single person — center the card
               return (
-                <PersonCard
-                  key={i}
-                  person={item.node.person}
-                  left={cx - CARD_W / 2}
-                  top={top}
-                />
+                <PersonCard key={i} person={item.node.person} left={cx - CARD_W / 2} top={top} lang={lang} />
               );
             }
           })}
