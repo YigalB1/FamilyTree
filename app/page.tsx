@@ -7,6 +7,7 @@ import { buildDescendantTree, TreeNode } from './lib/buildTree';
 import { pdf } from '@react-pdf/renderer';
 import { TreePdf, PageFormat, Lang } from './lib/TreePdf';
 import { TreeSettings, defaultSettings } from './lib/treeSettings';
+import { generateAllReports } from './lib/reports/generateReports';
 
 export default function Home() {
   const [status, setStatus]             = useState<'idle'|'parsing'|'done'|'error'>('idle');
@@ -21,6 +22,10 @@ export default function Home() {
   const [lang, setLang]                 = useState<Lang>('he');
   const [settings, setSettings]         = useState<TreeSettings>(defaultSettings);
   const [showSettings, setShowSettings] = useState(false);
+  const [generatingReports, setGeneratingReports] = useState(false);
+
+
+
 
   // ── Load persisted data on first render ──────────────────────
   useEffect(() => {
@@ -279,6 +284,13 @@ export default function Home() {
               className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl px-4 py-4 text-sm font-semibold">
               📂 Load new file
             </button>
+            <button
+              onClick={handleGenerateReports}
+              disabled={generatingReports}
+              className="bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-xl px-4 py-4 text-sm font-semibold disabled:opacity-50"
+            >
+              {generatingReports ? '⏳ Generating...' : '📋 Generate Reports'}
+            </button>
           </div>
 
           {/* Language filter */}
@@ -513,4 +525,14 @@ export default function Home() {
       )}
     </main>
   );
+  
+  async function handleGenerateReports() {
+    if (!data) return;
+    setGeneratingReports(true);
+    try {
+      await generateAllReports(data);
+    } finally {
+      setGeneratingReports(false);
+    }
+  }
 }
