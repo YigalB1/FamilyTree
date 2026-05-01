@@ -1,0 +1,20 @@
+# Database Migrations
+
+This folder contains SQL migration files for the Family Tree application.
+
+## Setup (first time)
+```bash
+psql -U familytree_user -d familytree < database/001_initial_schema.sql
+```
+
+## Adding new migrations
+- Name files sequentially: 002_add_photos.sql, 003_add_notes.sql etc.
+- Always test locally before committing
+- Never modify existing migration files — add new ones instead
+
+## Restore from backup
+```bash
+dropdb familytree
+createdb familytree
+psql familytree < backups/backup-YYYY-MM-DD.sql
+```
