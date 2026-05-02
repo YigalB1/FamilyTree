@@ -333,6 +333,11 @@ export default function Home() {
               📥 Import & Compare
             </Link>
 
+            <Link href="/changelog"
+              className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
+              📋 Change Log
+            </Link>
+
             {/* User info */}
             <span className="opacity-80">
               {currentUser.name}
