@@ -24,25 +24,32 @@ const ROLE_LABELS: Record<string, string> = {
 }; // end ROLE_LABELS
 
 export default function UsersPage() {
-  const [users,       setUsers]       = useState<User[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState('');
-  const [showAdd,     setShowAdd]     = useState(false);
-  const [editingId,   setEditingId]   = useState<string | null>(null);
-  const [msg,         setMsg]         = useState('');
+
+  // ── State ─────────────────────────────────────────────────────
+  const [users,        setUsers]        = useState<User[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState('');
+  const [showAdd,      setShowAdd]      = useState(false);
+  const [editingId,    setEditingId]    = useState<string | null>(null);
+  const [msg,          setMsg]          = useState('');
 
   // New user form
-  const [newEmail,    setNewEmail]    = useState('');
-  const [newName,     setNewName]     = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [newRole,     setNewRole]     = useState<'admin'|'editor'|'viewer'>('viewer');
-  const [adding,      setAdding]      = useState(false);
+  const [newEmail,     setNewEmail]     = useState('');
+  const [newName,      setNewName]      = useState('');
+  const [newPassword,  setNewPassword]  = useState('');
+  const [newRole,      setNewRole]      = useState<'admin'|'editor'|'viewer'>('viewer');
+  const [adding,       setAdding]       = useState(false);
 
   // Edit user form
   const [editRole,     setEditRole]     = useState<'admin'|'editor'|'viewer'>('viewer');
   const [editName,     setEditName]     = useState('');
   const [editPassword, setEditPassword] = useState('');
   const [saving,       setSaving]       = useState(false);
+
+  // Delete all data
+  const [showDelete,    setShowDelete]    = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [deleting,      setDeleting]      = useState(false);
 
   // ── Load users ──────────────────────────────────────────────────
   async function loadUsers() {
@@ -100,7 +107,6 @@ export default function UsersPage() {
     try {
       const body: any = { role: editRole, name: editName };
       if (editPassword) body.password = editPassword;
-
       const res  = await fetch(`/api/admin/users/${userId}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -133,11 +139,36 @@ export default function UsersPage() {
     }
   } // end of handleDelete
 
+  // ── Delete all genealogy data ───────────────────────────────────
+  async function handleDeleteAllData() {
+    if (deleteConfirm !== 'DELETE ALL DATA') return;
+    setDeleting(true);
+    setMsg('');
+    try {
+      const res  = await fetch('/api/admin/delete-data', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ confirm: deleteConfirm }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setMsg(`❌ ${data.error}`); return; }
+      setMsg('✅ All genealogy data deleted. User accounts preserved.');
+      setShowDelete(false);
+      setDeleteConfirm('');
+    } catch {
+      setMsg('❌ Failed to delete data');
+    } finally {
+      setDeleting(false);
+    }
+  } // end of handleDeleteAllData
+
+  // ── Helpers ─────────────────────────────────────────────────────
   function formatDate(dateStr: string | null): string {
     if (!dateStr) return '—';
     return new Date(dateStr).toLocaleDateString();
   } // end of formatDate
 
+  // ── Render ────────────────────────────────────────────────────
   return (
     <main className="min-h-screen bg-gray-50">
 
@@ -165,7 +196,9 @@ export default function UsersPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-bold text-blue-900">Users</h2>
-            <p className="text-sm text-gray-500 mt-1">{users.length} registered user{users.length !== 1 ? 's' : ''}</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {users.length} registered user{users.length !== 1 ? 's' : ''}
+            </p>
           </div>
           <button
             onClick={() => { setShowAdd(true); setMsg(''); }}
@@ -266,17 +299,12 @@ export default function UsersPage() {
                       </label>
                     </div>
                     <div className="flex gap-3">
-                      <button
-                        onClick={() => handleSaveEdit(u.id)}
-                        disabled={saving}
-                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-                      >
+                      <button onClick={() => handleSaveEdit(u.id)} disabled={saving}
+                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
                         {saving ? 'Saving…' : '💾 Save'}
                       </button>
-                      <button
-                        onClick={() => setEditingId(null)}
-                        className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium"
-                      >
+                      <button onClick={() => setEditingId(null)}
+                        className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium">
                         Cancel
                       </button>
                     </div>
@@ -298,16 +326,12 @@ export default function UsersPage() {
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => startEdit(u)}
-                        className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-medium"
-                      >
+                      <button onClick={() => startEdit(u)}
+                        className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-medium">
                         ✏️ Edit
                       </button>
-                      <button
-                        onClick={() => handleDelete(u.id, u.name)}
-                        className="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-lg text-xs font-medium"
-                      >
+                      <button onClick={() => handleDelete(u.id, u.name)}
+                        className="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-lg text-xs font-medium">
                         🗑 Delete
                       </button>
                     </div>
@@ -319,8 +343,53 @@ export default function UsersPage() {
           </div>
         )} {/* end users list */}
 
+        {/* Danger Zone */}
+        <div className="mt-6 bg-white rounded-2xl shadow p-6 border-2 border-red-200">
+          <h3 className="font-bold text-red-700 mb-2">⚠️ Danger Zone</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Delete all genealogy data (persons, families, change log, import history).
+            User accounts will be preserved. This cannot be undone — make sure you have a backup first.
+          </p>
+          {!showDelete ? (
+            <button
+              onClick={() => setShowDelete(true)}
+              className="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              🗑 Delete All Genealogy Data
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-red-700">
+                Type <strong>DELETE ALL DATA</strong> to confirm:
+              </p>
+              <input
+                type="text"
+                value={deleteConfirm}
+                onChange={e => setDeleteConfirm(e.target.value)}
+                placeholder="DELETE ALL DATA"
+                className="border-2 border-red-300 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={handleDeleteAllData}
+                  disabled={deleting || deleteConfirm !== 'DELETE ALL DATA'}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                >
+                  {deleting ? 'Deleting…' : '🗑 Confirm Delete'}
+                </button>
+                <button
+                  onClick={() => { setShowDelete(false); setDeleteConfirm(''); }}
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )} {/* end delete confirmation */}
+        </div> {/* end danger zone */}
+
         {/* Role legend */}
-        <div className="mt-8 bg-white rounded-2xl shadow p-6">
+        <div className="mt-6 bg-white rounded-2xl shadow p-6">
           <h3 className="font-bold text-blue-900 mb-4 border-b pb-2">Role Permissions</h3>
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
