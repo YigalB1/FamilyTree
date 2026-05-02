@@ -17,28 +17,118 @@ interface AuthUser {
   role:  string;
 } // end of AuthUser interface
 
+// ── Export root search component ──────────────────────────────────
+// Defined OUTSIDE Home to prevent re-render focus loss
+
+interface ExportRootSearchProps {
+  persons:       Person[];
+  defaultPerson: Person | null;
+  onSelect:      (p: Person) => void;
+} // end of ExportRootSearchProps interface
+
+function ExportRootSearch({ persons, defaultPerson, onSelect }: ExportRootSearchProps) {
+  const [search,   setSearch]   = useState('');
+  const [selected, setSelected] = useState<Person | null>(defaultPerson);
+  const [showDrop, setShowDrop] = useState(false);
+
+  const suggestions = useMemo(() => {
+    if (search.length < 2) return [];
+    const q = search.toLowerCase();
+    return persons
+      .filter(p =>
+        `${p.firstNameHe} ${p.lastNameHe}`.toLowerCase().includes(q) ||
+        `${p.firstNameEn} ${p.lastNameEn}`.toLowerCase().includes(q) ||
+        `${p.firstName}   ${p.lastName}`.toLowerCase().includes(q)
+      )
+      .slice(0, 8);
+  }, [persons, search]); // end suggestions
+
+  function selectPerson(p: Person) {
+    setSelected(p);
+    setSearch('');
+    setShowDrop(false);
+  } // end of selectPerson
+
+  return (
+    <div>
+      {/* Selected person display */}
+      {selected && (
+        <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 mb-2 border border-green-300">
+          <span className="text-sm font-medium text-green-800">
+            {selected.firstNameHe || selected.firstNameEn} {selected.lastNameHe || selected.lastNameEn}
+          </span>
+          <button
+            onClick={() => setSelected(null)}
+            className="text-gray-400 hover:text-gray-600 text-xs ml-2"
+          >
+            ✕
+          </button>
+        </div>
+      )} {/* end selected person */}
+
+      {/* Search input */}
+      <div className="relative">
+        <input
+          type="text"
+          value={search}
+          onChange={e => { setSearch(e.target.value); setShowDrop(true); }}
+          placeholder="Search for a person…"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+        />
+        {showDrop && suggestions.length > 0 && (
+          <div className="absolute z-20 w-full bg-white border border-gray-200 rounded-xl shadow-lg mt-1 overflow-hidden">
+            {suggestions.map(p => (
+              <button key={p.id} onClick={() => selectPerson(p)}
+                className="w-full text-left px-4 py-2 hover:bg-green-50 text-sm border-b border-gray-100 last:border-0">
+                <span className="font-medium">
+                  {p.firstNameHe || p.firstNameEn} {p.lastNameHe || p.lastNameEn}
+                </span>
+                <span className="text-gray-400 ml-2 text-xs">{p.birthDate || ''}</span>
+              </button>
+            ))}
+          </div>
+        )} {/* end dropdown */}
+      </div>
+
+      {/* Export button */}
+      <button
+        onClick={() => { if (selected) onSelect(selected); }}
+        disabled={!selected}
+        className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+      >
+        {selected
+          ? `Export descendants of ${selected.firstNameHe || selected.firstNameEn}`
+          : 'Select a person first'}
+      </button>
+    </div>
+  );
+} // end of ExportRootSearch
+
+// ── Main page ─────────────────────────────────────────────────────
+
 export default function Home() {
 
   // ── State ─────────────────────────────────────────────────────
-  const [status, setStatus]             = useState<'idle'|'parsing'|'done'|'error'>('idle');
-  const [data, setData]                 = useState<GedcomData | null>(null);
-  const [rawGedcom, setRawGedcom]       = useState<string>('');
-  const [currentFile, setCurrentFile]   = useState<File | null>(null);
-  const [search, setSearch]             = useState('');
-  const [tableSearch, setTableSearch]   = useState('');
-  const [rootPerson, setRootPerson]     = useState<Person | null>(null);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [tree, setTree]                 = useState<TreeNode | null>(null);
-  const [pageFormat, setPageFormat]     = useState<PageFormat>('A4L');
-  const [lang, setLang]                 = useState<Lang>('he');
-  const [settings, setSettings]         = useState<TreeSettings>(defaultSettings);
-  const [showSettings, setShowSettings] = useState(false);
+  const [status, setStatus]               = useState<'idle'|'parsing'|'done'|'error'>('idle');
+  const [data, setData]                   = useState<GedcomData | null>(null);
+  const [rawGedcom, setRawGedcom]         = useState<string>('');
+  const [currentFile, setCurrentFile]     = useState<File | null>(null);
+  const [search, setSearch]               = useState('');
+  const [tableSearch, setTableSearch]     = useState('');
+  const [rootPerson, setRootPerson]       = useState<Person | null>(null);
+  const [showDropdown, setShowDropdown]   = useState(false);
+  const [tree, setTree]                   = useState<TreeNode | null>(null);
+  const [pageFormat, setPageFormat]       = useState<PageFormat>('A4L');
+  const [lang, setLang]                   = useState<Lang>('he');
+  const [settings, setSettings]           = useState<TreeSettings>(defaultSettings);
+  const [showSettings, setShowSettings]   = useState(false);
   const [generatingReports, setGeneratingReports] = useState(false);
-  const [savingToDb, setSavingToDb]     = useState(false);
-  const [dbSaveResult, setDbSaveResult] = useState<string | null>(null);
-  const [currentUser, setCurrentUser]   = useState<AuthUser | null>(null);
-  const [backingUp, setBackingUp]       = useState(false);
-  const [backupResult, setBackupResult] = useState<string | null>(null);
+  const [savingToDb, setSavingToDb]       = useState(false);
+  const [dbSaveResult, setDbSaveResult]   = useState<string | null>(null);
+  const [currentUser, setCurrentUser]     = useState<AuthUser | null>(null);
+  const [backingUp, setBackingUp]         = useState(false);
+  const [backupResult, setBackupResult]   = useState<string | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   // ── Load current user ─────────────────────────────────────────
   useEffect(() => {
@@ -132,10 +222,10 @@ export default function Home() {
       formData.append('file',   currentFile);
       formData.append('source', 'Geni');
       const res  = await fetch('/api/import', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) { setDbSaveResult(`❌ Error: ${data.error}`); return; }
+      const json = await res.json();
+      if (!res.ok) { setDbSaveResult(`❌ Error: ${json.error}`); return; }
       setDbSaveResult(
-        `✅ Saved to database — ${data.personsAdded} people added, ${data.personsSkipped} already existed, ${data.familiesAdded} families added`
+        `✅ Saved to database — ${json.personsAdded} people added, ${json.personsSkipped} already existed, ${json.familiesAdded} families added`
       );
     } catch {
       setDbSaveResult('❌ Failed to save to database');
@@ -150,9 +240,9 @@ export default function Home() {
     setBackupResult(null);
     try {
       const res  = await fetch('/api/backup', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) { setBackupResult(`❌ Backup failed: ${data.error}`); return; }
-      const match    = data.message?.match(/backup-[\d_-]+\.sql/);
+      const json = await res.json();
+      if (!res.ok) { setBackupResult(`❌ Backup failed: ${json.error}`); return; }
+      const match    = json.message?.match(/backup-[\d_-]+\.sql/);
       const filename = match ? match[0] : 'backup created';
       setBackupResult(`✅ Backup saved: ${filename}`);
     } catch {
@@ -161,6 +251,15 @@ export default function Home() {
       setBackingUp(false);
     }
   } // end of handleBackup
+
+  // ── Export GEDCOM ─────────────────────────────────────────────
+  function handleExportGedcom(rootId?: string) {
+    const url = rootId
+      ? `/api/export/gedcom?rootId=${rootId}`
+      : '/api/export/gedcom';
+    window.location.href = url;
+    setShowExportModal(false);
+  } // end of handleExportGedcom
 
   // ── Logout ────────────────────────────────────────────────────
   async function handleLogout() {
@@ -254,7 +353,7 @@ export default function Home() {
     const lines = rawGedcom.split(/\r?\n/);
     const rows: Record<string, string>[] = [];
     let current: Record<string, string> = {};
-    let lastTag1 = '';
+    let lastTag1  = '';
     let nameCount = 0;
 
     for (const line of lines) {
@@ -333,6 +432,16 @@ export default function Home() {
               📥 Import & Compare
             </Link>
 
+            {/* Export GEDCOM */}
+            {currentUser.role !== 'viewer' && (
+              <button
+                onClick={() => setShowExportModal(true)}
+                className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium"
+              >
+                📤 Export GEDCOM
+              </button>
+            )} {/* end export gedcom button */}
+
             {/* Change Log link */}
             <Link href="/changelog"
               className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
@@ -345,8 +454,7 @@ export default function Home() {
                 className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
                 👥 Users
               </Link>
-            )}
-
+            )} {/* end admin users link */}
 
             {/* User info */}
             <span className="opacity-80">
@@ -678,6 +786,51 @@ export default function Home() {
         )} {/* end main UI */}
 
       </div> {/* end p-8 */}
+
+      {/* ── Export GEDCOM modal ── */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md mx-4">
+            <h2 className="text-xl font-bold text-blue-900 mb-2">📤 Export GEDCOM</h2>
+            <p className="text-gray-500 text-sm mb-6">
+              Choose what to export from the database.
+            </p>
+
+            <div className="space-y-3 mb-6">
+
+              {/* Export all */}
+              <button
+                onClick={() => handleExportGedcom()}
+                className="w-full bg-blue-50 hover:bg-blue-100 border-2 border-blue-200 rounded-xl p-4 text-left transition-colors"
+              >
+                <p className="font-semibold text-blue-900">🌳 Export entire tree</p>
+                <p className="text-sm text-gray-500 mt-1">
+                  All people and families in the database
+                </p>
+              </button>
+
+              {/* Export from any root — search */}
+              <div className="bg-green-50 border-2 border-green-200 rounded-xl p-4">
+                <p className="font-semibold text-green-800 mb-3">👤 Export descendants of…</p>
+                <ExportRootSearch
+                  persons={data?.persons || []}
+                  defaultPerson={rootPerson}
+                  onSelect={(p) => handleExportGedcom(p.id)}
+                />
+              </div>
+
+            </div>
+
+            <button
+              onClick={() => setShowExportModal(false)}
+              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-xl text-sm font-medium"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )} {/* end export modal */}
+
     </main>
   );
 } // end of Home
