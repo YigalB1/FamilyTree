@@ -8,6 +8,7 @@ import { pdf } from '@react-pdf/renderer';
 import { TreePdf, PageFormat, Lang } from './lib/TreePdf';
 import { TreeSettings, defaultSettings } from './lib/treeSettings';
 import { generateAllReports } from './lib/reports/generateReports';
+import Link from 'next/link';
 
 interface AuthUser {
   id:    string;
@@ -605,7 +606,11 @@ export default function Home() {
                     <tr key={p.id}
                       className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
                         ${rootPerson?.id === p.id ? 'ring-2 ring-inset ring-blue-400' : ''}`}>
-                      <td className="px-4 py-2 font-medium">{displayName(p)}</td>
+                      <td className="px-4 py-2 font-medium">
+                        <Link href={`/person/${p.id}`} className="hover:text-blue-700 hover:underline">
+                          {displayName(p)}
+                        </Link>
+                      </td>
                       <td className="px-4 py-2 text-gray-500">{p.sex === 'M' ? '♂' : p.sex === 'F' ? '♀' : '—'}</td>
                       <td className="px-4 py-2 text-gray-500">{p.birthDate || '—'}</td>
                       <td className="px-4 py-2 text-gray-500">{p.birthPlace || '—'}</td>
