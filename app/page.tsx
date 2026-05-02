@@ -2,22 +2,24 @@
 import { useCallback, useState, useMemo, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import * as XLSX from 'xlsx';
+import Link from 'next/link';
 import { parseGedcom, GedcomData, Person } from './lib/parseGedcom';
 import { buildDescendantTree, TreeNode } from './lib/buildTree';
 import { pdf } from '@react-pdf/renderer';
 import { TreePdf, PageFormat, Lang } from './lib/TreePdf';
 import { TreeSettings, defaultSettings } from './lib/treeSettings';
 import { generateAllReports } from './lib/reports/generateReports';
-import Link from 'next/link';
 
 interface AuthUser {
   id:    string;
   email: string;
   name:  string;
   role:  string;
-}
+} // end of AuthUser interface
 
 export default function Home() {
+
+  // ── State ─────────────────────────────────────────────────────
   const [status, setStatus]             = useState<'idle'|'parsing'|'done'|'error'>('idle');
   const [data, setData]                 = useState<GedcomData | null>(null);
   const [rawGedcom, setRawGedcom]       = useState<string>('');
@@ -44,7 +46,7 @@ export default function Home() {
       .then(r => r.json())
       .then(d => { if (d.user) setCurrentUser(d.user); })
       .catch(() => {});
-  }, []);
+  }, []); // end useEffect load user
 
   // ── Load persisted data on first render ──────────────────────
   useEffect(() => {
@@ -67,27 +69,31 @@ export default function Home() {
           setSearch(`${person.firstName} ${person.lastName}`);
           const t = buildDescendantTree(person.id, parsed);
           setTree(t);
-        }
-      }
+        } // end if savedRoot
+      } // end if saved
     } catch { /* ignore */ }
-  }, []);
+  }, []); // end useEffect load persisted data
 
   // ── Persist whenever state changes ───────────────────────────
   useEffect(() => {
     if (data) localStorage.setItem('gedcom_data', JSON.stringify(data));
-  }, [data]);
+  }, [data]); // end useEffect persist data
+
   useEffect(() => {
     if (rawGedcom) localStorage.setItem('gedcom_raw', rawGedcom);
-  }, [rawGedcom]);
+  }, [rawGedcom]); // end useEffect persist rawGedcom
+
   useEffect(() => {
     if (rootPerson) localStorage.setItem('gedcom_root', JSON.stringify(rootPerson));
-  }, [rootPerson]);
+  }, [rootPerson]); // end useEffect persist rootPerson
+
   useEffect(() => {
     localStorage.setItem('gedcom_format', pageFormat);
-  }, [pageFormat]);
+  }, [pageFormat]); // end useEffect persist pageFormat
+
   useEffect(() => {
     localStorage.setItem('gedcom_settings', JSON.stringify(settings));
-  }, [settings]);
+  }, [settings]); // end useEffect persist settings
 
   // ── GEDCOM file drop ──────────────────────────────────────────
   const onDrop = useCallback((files: File[]) => {
@@ -108,9 +114,9 @@ export default function Home() {
         setTree(null);
         setSearch('');
       } catch { setStatus('error'); }
-    };
+    }; // end reader.onload
     reader.readAsText(file);
-  }, []);
+  }, []); // end onDrop
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop, accept: { 'text/plain': ['.ged', '.gedcom'] }, multiple: false,
@@ -136,7 +142,7 @@ export default function Home() {
     } finally {
       setSavingToDb(false);
     }
-  }
+  } // end of saveToDatabase
 
   // ── Backup database ───────────────────────────────────────────
   async function handleBackup() {
@@ -145,12 +151,8 @@ export default function Home() {
     try {
       const res  = await fetch('/api/backup', { method: 'POST' });
       const data = await res.json();
-      if (!res.ok) {
-        setBackupResult(`❌ Backup failed: ${data.error}`);
-        return;
-      }
-      // Extract filename from output message
-      const match = data.message?.match(/backup-[\d_-]+\.sql/);
+      if (!res.ok) { setBackupResult(`❌ Backup failed: ${data.error}`); return; }
+      const match    = data.message?.match(/backup-[\d_-]+\.sql/);
       const filename = match ? match[0] : 'backup created';
       setBackupResult(`✅ Backup saved: ${filename}`);
     } catch {
@@ -158,13 +160,13 @@ export default function Home() {
     } finally {
       setBackingUp(false);
     }
-  }
+  } // end of handleBackup
 
   // ── Logout ────────────────────────────────────────────────────
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
     window.location.href = '/login';
-  }
+  } // end of handleLogout
 
   // ── Search dropdown suggestions ───────────────────────────────
   const suggestions = useMemo(() => {
@@ -177,7 +179,7 @@ export default function Home() {
         `${p.firstNameHe} ${p.lastNameHe}`.toLowerCase().includes(q)
       )
       .slice(0, 8);
-  }, [data, search]);
+  }, [data, search]); // end suggestions
 
   // ── Table filter with language ────────────────────────────────
   const filtered = useMemo(() => {
@@ -187,23 +189,23 @@ export default function Home() {
         const name = `${p.firstNameHe} ${p.lastNameHe}`;
         return name.trim().length > 0 &&
           name.toLowerCase().includes(tableSearch.toLowerCase());
-      }
+      } // end if he
       if (lang === 'en') {
         const name = `${p.firstNameEn} ${p.lastNameEn}`;
         return name.trim().length > 0 &&
           name.toLowerCase().includes(tableSearch.toLowerCase());
-      }
+      } // end if en
       const name = `${p.firstName} ${p.lastName}`;
       return name.toLowerCase().includes(tableSearch.toLowerCase());
     });
-  }, [data, tableSearch, lang]);
+  }, [data, tableSearch, lang]); // end filtered
 
   // ── Display name helper ───────────────────────────────────────
   function displayName(p: Person): string {
     if (lang === 'he') return `${p.firstNameHe} ${p.lastNameHe}`.trim();
     if (lang === 'en') return `${p.firstNameEn} ${p.lastNameEn}`.trim();
     return `${p.firstName} ${p.lastName}`.trim();
-  }
+  } // end of displayName
 
   // ── Select root person ────────────────────────────────────────
   function selectPerson(p: Person) {
@@ -213,8 +215,8 @@ export default function Home() {
     if (data) {
       const t = buildDescendantTree(p.id, data);
       setTree(t);
-    }
-  }
+    } // end if data
+  } // end of selectPerson
 
   // ── Download PDF ──────────────────────────────────────────────
   async function downloadPdf() {
@@ -228,7 +230,7 @@ export default function Home() {
     a.download = `family-tree-${rootPerson.lastName}-${pageFormat}.pdf`;
     a.click();
     URL.revokeObjectURL(url);
-  }
+  } // end of downloadPdf
 
   // ── Clear everything ──────────────────────────────────────────
   function clearAll() {
@@ -244,7 +246,7 @@ export default function Home() {
     setSettings(defaultSettings);
     setDbSaveResult(null);
     setBackupResult(null);
-  }
+  } // end of clearAll
 
   // ── Export to Excel ───────────────────────────────────────────
   function exportToExcel() {
@@ -252,46 +254,57 @@ export default function Home() {
     const lines = rawGedcom.split(/\r?\n/);
     const rows: Record<string, string>[] = [];
     let current: Record<string, string> = {};
-    let lastTag1 = ''; let nameCount = 0;
+    let lastTag1 = '';
+    let nameCount = 0;
+
     for (const line of lines) {
       const parts = line.trim().split(' ');
       const level = parseInt(parts[0]);
       if (isNaN(level)) continue;
       const tag   = parts[1];
       const value = parts.slice(2).join(' ');
+
       if (level === 0) {
         if (current['ID']) rows.push(current);
         current = {}; lastTag1 = ''; nameCount = 0;
         if (parts[2] === 'INDI' || parts[2] === 'FAM') {
-          current['ID'] = tag.replace(/@/g, '');
+          current['ID']   = tag.replace(/@/g, '');
           current['TYPE'] = parts[2];
-        }
+        } // end if INDI/FAM
       } else if (level === 1) {
         lastTag1 = tag;
-        if (tag === 'NAME') { nameCount++; if (value) current[`NAME_${nameCount}`] = value; }
-        else { if (value) current[tag] = value; }
+        if (tag === 'NAME') {
+          nameCount++;
+          if (value) current[`NAME_${nameCount}`] = value;
+        } else {
+          if (value) current[tag] = value;
+        } // end if NAME
       } else if (level === 2) {
         if (value) current[`${lastTag1}_${tag}`] = value;
-      }
-    }
+      } // end if level
+    } // end for lines
+
     if (current['ID']) rows.push(current);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'GEDCOM Raw');
     XLSX.writeFile(wb, 'gedcom-raw.xlsx');
-  }
+  } // end of exportToExcel
 
   // ── Settings updater ──────────────────────────────────────────
   function setSetting<K extends keyof TreeSettings>(key: K, value: TreeSettings[K]) {
     setSettings(s => ({ ...s, [key]: value }));
-  }
+  } // end of setSetting
 
   // ── Generate reports ──────────────────────────────────────────
   async function handleGenerateReports() {
     if (!data) return;
     setGeneratingReports(true);
-    try { await generateAllReports(data); }
-    finally { setGeneratingReports(false); }
-  }
+    try {
+      await generateAllReports(data);
+    } finally {
+      setGeneratingReports(false);
+    }
+  } // end of handleGenerateReports
 
   // ── Render ────────────────────────────────────────────────────
   return (
@@ -301,41 +314,53 @@ export default function Home() {
       <div className="bg-blue-900 text-white px-8 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold">🌳 Family Tree</h1>
         {currentUser && (
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-3 text-sm">
+
             {/* Backup button — admin only */}
             {currentUser.role === 'admin' && (
               <button
                 onClick={handleBackup}
                 disabled={backingUp}
-                className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium disabled:opacity-50 flex items-center gap-1"
+                className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium disabled:opacity-50"
               >
                 {backingUp ? '⏳ Backing up…' : '💾 Backup DB'}
               </button>
-            )}
+            )} {/* end admin backup button */}
+
+            {/* Import & Compare link */}
+            <Link href="/import-review"
+              className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
+              📥 Import & Compare
+            </Link>
+
+            {/* User info */}
             <span className="opacity-80">
               {currentUser.name}
               <span className="ml-2 bg-blue-700 px-2 py-0.5 rounded-full text-xs">
                 {currentUser.role}
               </span>
             </span>
+
+            {/* Sign out */}
             <button
               onClick={handleLogout}
               className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium"
             >
               Sign out
             </button>
-          </div>
-        )}
-      </div>
 
-      {/* Backup result message */}
+          </div>
+        )} {/* end currentUser */}
+      </div> {/* end top bar */}
+
+      {/* Backup result banner */}
       {backupResult && (
         <div className={`px-8 py-2 text-sm font-medium text-center
           ${backupResult.startsWith('✅') ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
           {backupResult}
           <button onClick={() => setBackupResult(null)} className="ml-4 opacity-70 hover:opacity-100">✕</button>
         </div>
-      )}
+      )} {/* end backup result banner */}
 
       <div className="p-8">
         <p className="text-gray-500 mb-8 text-center">Import your family data to get started</p>
@@ -358,7 +383,7 @@ export default function Home() {
               <p className="mt-4 text-red-500 text-sm">Something went wrong. Please try again.</p>
             )}
           </div>
-        )}
+        )} {/* end drop zone */}
 
         {status === 'parsing' && (
           <p className="text-center text-blue-600 animate-pulse mt-12">Parsing your file…</p>
@@ -386,7 +411,7 @@ export default function Home() {
                 >
                   {savingToDb ? '⏳ Saving…' : '💾 Save to Database'}
                 </button>
-              )}
+              )} {/* end save to db button */}
               <button onClick={exportToExcel}
                 className="bg-green-100 hover:bg-green-200 text-green-700 rounded-xl px-4 py-4 text-sm font-semibold">
                 📊 Export Excel
@@ -406,7 +431,7 @@ export default function Home() {
               >
                 {generatingReports ? '⏳ Generating...' : '📋 Generate Reports'}
               </button>
-            </div>
+            </div> {/* end summary bar */}
 
             {/* DB save result */}
             {dbSaveResult && (
@@ -416,7 +441,7 @@ export default function Home() {
                   : 'bg-red-50 text-red-700 border border-red-200'}`}>
                 {dbSaveResult}
               </div>
-            )}
+            )} {/* end db save result */}
 
             {/* Language filter */}
             <div className="flex gap-2 mb-4 items-center">
@@ -428,7 +453,7 @@ export default function Home() {
                   {l === 'all' ? '🌐 All' : l === 'he' ? '🇮🇱 Hebrew' : '🇬🇧 English'}
                 </button>
               ))}
-            </div>
+            </div> {/* end language filter */}
 
             {/* Settings toggle */}
             <div className="mb-4">
@@ -528,7 +553,7 @@ export default function Home() {
                   ↺ Reset to defaults
                 </button>
               </div>
-            )}
+            )} {/* end settings panel */}
 
             {/* Root person selector */}
             <div className="bg-white rounded-2xl shadow p-6 mb-6">
@@ -559,8 +584,10 @@ export default function Home() {
                       </button>
                     ))}
                   </div>
-                )}
+                )} {/* end dropdown */}
               </div>
+
+              {/* PDF controls */}
               {rootPerson && tree && (
                 <div className="mt-4 flex items-center gap-3 flex-wrap">
                   <span className="text-sm text-green-600 font-medium">
@@ -579,8 +606,8 @@ export default function Home() {
                     ⬇ Download PDF
                   </button>
                 </div>
-              )}
-            </div>
+              )} {/* end PDF controls */}
+            </div> {/* end root person selector */}
 
             {/* Table search */}
             <input type="text" placeholder="Search table by name…"
@@ -607,7 +634,8 @@ export default function Home() {
                       className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
                         ${rootPerson?.id === p.id ? 'ring-2 ring-inset ring-blue-400' : ''}`}>
                       <td className="px-4 py-2 font-medium">
-                        <Link href={`/person/${p.id}`} className="hover:text-blue-700 hover:underline">
+                        <Link href={`/person/${p.id}`}
+                          className="hover:text-blue-700 hover:underline">
                           {displayName(p)}
                         </Link>
                       </td>
@@ -625,14 +653,16 @@ export default function Home() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </div> {/* end people table */}
+
             <p className="text-xs text-gray-400 mt-3 text-center">
               Showing {filtered.length} of {data.persons.length} people
             </p>
 
           </div>
-        )}
-      </div>
+        )} {/* end main UI */}
+
+      </div> {/* end p-8 */}
     </main>
   );
-}
+} // end of Home
