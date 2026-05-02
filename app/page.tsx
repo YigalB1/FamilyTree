@@ -333,10 +333,20 @@ export default function Home() {
               📥 Import & Compare
             </Link>
 
+            {/* Change Log link */}
             <Link href="/changelog"
               className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
               📋 Change Log
             </Link>
+
+            {/* Users link — admin only */}
+            {currentUser.role === 'admin' && (
+              <Link href="/admin/users"
+                className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
+                👥 Users
+              </Link>
+            )}
+
 
             {/* User info */}
             <span className="opacity-80">
