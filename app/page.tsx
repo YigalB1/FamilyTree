@@ -34,6 +34,8 @@ export default function Home() {
   const [savingToDb, setSavingToDb]     = useState(false);
   const [dbSaveResult, setDbSaveResult] = useState<string | null>(null);
   const [currentUser, setCurrentUser]   = useState<AuthUser | null>(null);
+  const [backingUp, setBackingUp]       = useState(false);
+  const [backupResult, setBackupResult] = useState<string | null>(null);
 
   // ── Load current user ─────────────────────────────────────────
   useEffect(() => {
@@ -122,21 +124,38 @@ export default function Home() {
       const formData = new FormData();
       formData.append('file',   currentFile);
       formData.append('source', 'Geni');
-
       const res  = await fetch('/api/import', { method: 'POST', body: formData });
       const data = await res.json();
-
-      if (!res.ok) {
-        setDbSaveResult(`❌ Error: ${data.error}`);
-        return;
-      }
+      if (!res.ok) { setDbSaveResult(`❌ Error: ${data.error}`); return; }
       setDbSaveResult(
         `✅ Saved to database — ${data.personsAdded} people added, ${data.personsSkipped} already existed, ${data.familiesAdded} families added`
       );
-    } catch (err) {
+    } catch {
       setDbSaveResult('❌ Failed to save to database');
     } finally {
       setSavingToDb(false);
+    }
+  }
+
+  // ── Backup database ───────────────────────────────────────────
+  async function handleBackup() {
+    setBackingUp(true);
+    setBackupResult(null);
+    try {
+      const res  = await fetch('/api/backup', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setBackupResult(`❌ Backup failed: ${data.error}`);
+        return;
+      }
+      // Extract filename from output message
+      const match = data.message?.match(/backup-[\d_-]+\.sql/);
+      const filename = match ? match[0] : 'backup created';
+      setBackupResult(`✅ Backup saved: ${filename}`);
+    } catch {
+      setBackupResult('❌ Backup failed');
+    } finally {
+      setBackingUp(false);
     }
   }
 
@@ -223,6 +242,7 @@ export default function Home() {
     setTableSearch('');
     setSettings(defaultSettings);
     setDbSaveResult(null);
+    setBackupResult(null);
   }
 
   // ── Export to Excel ───────────────────────────────────────────
@@ -231,8 +251,7 @@ export default function Home() {
     const lines = rawGedcom.split(/\r?\n/);
     const rows: Record<string, string>[] = [];
     let current: Record<string, string> = {};
-    let lastTag1  = '';
-    let nameCount = 0;
+    let lastTag1 = ''; let nameCount = 0;
     for (const line of lines) {
       const parts = line.trim().split(' ');
       const level = parseInt(parts[0]);
@@ -243,17 +262,13 @@ export default function Home() {
         if (current['ID']) rows.push(current);
         current = {}; lastTag1 = ''; nameCount = 0;
         if (parts[2] === 'INDI' || parts[2] === 'FAM') {
-          current['ID']   = tag.replace(/@/g, '');
+          current['ID'] = tag.replace(/@/g, '');
           current['TYPE'] = parts[2];
         }
       } else if (level === 1) {
         lastTag1 = tag;
-        if (tag === 'NAME') {
-          nameCount++;
-          if (value) current[`NAME_${nameCount}`] = value;
-        } else {
-          if (value) current[tag] = value;
-        }
+        if (tag === 'NAME') { nameCount++; if (value) current[`NAME_${nameCount}`] = value; }
+        else { if (value) current[tag] = value; }
       } else if (level === 2) {
         if (value) current[`${lastTag1}_${tag}`] = value;
       }
@@ -281,11 +296,21 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-50">
 
-      {/* ── Top bar with user info ── */}
+      {/* ── Top bar ── */}
       <div className="bg-blue-900 text-white px-8 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold">🌳 Family Tree</h1>
         {currentUser && (
           <div className="flex items-center gap-4 text-sm">
+            {/* Backup button — admin only */}
+            {currentUser.role === 'admin' && (
+              <button
+                onClick={handleBackup}
+                disabled={backingUp}
+                className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium disabled:opacity-50 flex items-center gap-1"
+              >
+                {backingUp ? '⏳ Backing up…' : '💾 Backup DB'}
+              </button>
+            )}
             <span className="opacity-80">
               {currentUser.name}
               <span className="ml-2 bg-blue-700 px-2 py-0.5 rounded-full text-xs">
@@ -301,6 +326,15 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Backup result message */}
+      {backupResult && (
+        <div className={`px-8 py-2 text-sm font-medium text-center
+          ${backupResult.startsWith('✅') ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
+          {backupResult}
+          <button onClick={() => setBackupResult(null)} className="ml-4 opacity-70 hover:opacity-100">✕</button>
+        </div>
+      )}
 
       <div className="p-8">
         <p className="text-gray-500 mb-8 text-center">Import your family data to get started</p>
@@ -343,8 +377,6 @@ export default function Home() {
                 <p className="text-3xl font-bold">{data.families.length}</p>
                 <p className="text-sm opacity-80">Families</p>
               </div>
-
-              {/* Save to DB button */}
               {currentFile && (
                 <button
                   onClick={saveToDatabase}
@@ -354,7 +386,6 @@ export default function Home() {
                   {savingToDb ? '⏳ Saving…' : '💾 Save to Database'}
                 </button>
               )}
-
               <button onClick={exportToExcel}
                 className="bg-green-100 hover:bg-green-200 text-green-700 rounded-xl px-4 py-4 text-sm font-semibold">
                 📊 Export Excel
@@ -376,7 +407,7 @@ export default function Home() {
               </button>
             </div>
 
-            {/* DB save result message */}
+            {/* DB save result */}
             {dbSaveResult && (
               <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium
                 ${dbSaveResult.startsWith('✅')
@@ -522,16 +553,13 @@ export default function Home() {
                         <span className="font-medium">
                           {p.firstNameHe || p.firstNameEn} {p.lastNameHe || p.lastNameEn}
                         </span>
-                        <span className="text-gray-400 ml-2 text-xs">
-                          {p.firstNameEn} {p.lastNameEn}
-                        </span>
+                        <span className="text-gray-400 ml-2 text-xs">{p.firstNameEn} {p.lastNameEn}</span>
                         <span className="text-gray-400 ml-2">{p.birthDate || ''}</span>
                       </button>
                     ))}
                   </div>
                 )}
               </div>
-
               {rootPerson && tree && (
                 <div className="mt-4 flex items-center gap-3 flex-wrap">
                   <span className="text-sm text-green-600 font-medium">
