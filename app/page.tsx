@@ -448,6 +448,12 @@ export default function Home() {
               📋 Change Log
             </Link>
 
+            {/* Data Quality link */}
+            <Link href="/quality"
+              className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
+              🔍 Data Quality
+            </Link>
+
             {/* Users link — admin only */}
             {currentUser.role === 'admin' && (
               <Link href="/admin/users"
