@@ -4,6 +4,7 @@ import { useDropzone } from 'react-dropzone';
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 import { parseGedcom, GedcomData, Person } from './lib/parseGedcom';
+import { dbToGedcomData, DbPerson, DbFamily } from './lib/dbToGedcom';
 import { buildDescendantTree, TreeNode } from './lib/buildTree';
 import { pdf } from '@react-pdf/renderer';
 import { TreePdf, PageFormat, Lang } from './lib/TreePdf';
@@ -51,30 +52,20 @@ function ExportRootSearch({ persons, defaultPerson, onSelect }: ExportRootSearch
 
   return (
     <div>
-      {/* Selected person display */}
       {selected && (
         <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 mb-2 border border-green-300">
           <span className="text-sm font-medium text-green-800">
             {selected.firstNameHe || selected.firstNameEn} {selected.lastNameHe || selected.lastNameEn}
           </span>
-          <button
-            onClick={() => setSelected(null)}
-            className="text-gray-400 hover:text-gray-600 text-xs ml-2"
-          >
-            ✕
-          </button>
+          <button onClick={() => setSelected(null)}
+            className="text-gray-400 hover:text-gray-600 text-xs ml-2">✕</button>
         </div>
-      )} {/* end selected person */}
-
-      {/* Search input */}
+      )} {/* end selected */}
       <div className="relative">
-        <input
-          type="text"
-          value={search}
+        <input type="text" value={search}
           onChange={e => { setSearch(e.target.value); setShowDrop(true); }}
           placeholder="Search for a person…"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
-        />
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
         {showDrop && suggestions.length > 0 && (
           <div className="absolute z-20 w-full bg-white border border-gray-200 rounded-xl shadow-lg mt-1 overflow-hidden">
             {suggestions.map(p => (
@@ -89,8 +80,6 @@ function ExportRootSearch({ persons, defaultPerson, onSelect }: ExportRootSearch
           </div>
         )} {/* end dropdown */}
       </div>
-
-      {/* Export button */}
       <button
         onClick={() => { if (selected) onSelect(selected); }}
         disabled={!selected}
@@ -109,10 +98,9 @@ function ExportRootSearch({ persons, defaultPerson, onSelect }: ExportRootSearch
 export default function Home() {
 
   // ── State ─────────────────────────────────────────────────────
-  const [status, setStatus]               = useState<'idle'|'parsing'|'done'|'error'>('idle');
   const [data, setData]                   = useState<GedcomData | null>(null);
-  const [rawGedcom, setRawGedcom]         = useState<string>('');
-  const [currentFile, setCurrentFile]     = useState<File | null>(null);
+  const [dbLoading, setDbLoading]         = useState(true);
+  const [dbError, setDbError]             = useState('');
   const [search, setSearch]               = useState('');
   const [tableSearch, setTableSearch]     = useState('');
   const [rootPerson, setRootPerson]       = useState<Person | null>(null);
@@ -123,12 +111,12 @@ export default function Home() {
   const [settings, setSettings]           = useState<TreeSettings>(defaultSettings);
   const [showSettings, setShowSettings]   = useState(false);
   const [generatingReports, setGeneratingReports] = useState(false);
-  const [savingToDb, setSavingToDb]       = useState(false);
-  const [dbSaveResult, setDbSaveResult]   = useState<string | null>(null);
   const [currentUser, setCurrentUser]     = useState<AuthUser | null>(null);
   const [backingUp, setBackingUp]         = useState(false);
   const [backupResult, setBackupResult]   = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [importMsg, setImportMsg]         = useState<string | null>(null);
+  const [importing, setImporting]         = useState(false);
 
   // ── Load current user ─────────────────────────────────────────
   useEffect(() => {
@@ -138,101 +126,65 @@ export default function Home() {
       .catch(() => {});
   }, []); // end useEffect load user
 
-  // ── Load persisted data on first render ──────────────────────
+  // ── Load data from database on mount ─────────────────────────
   useEffect(() => {
+    loadFromDatabase();
+  }, []); // end useEffect load db
+
+  async function loadFromDatabase() {
+    setDbLoading(true);
+    setDbError('');
     try {
-      const saved         = localStorage.getItem('gedcom_data');
-      const savedRaw      = localStorage.getItem('gedcom_raw');
-      const savedRoot     = localStorage.getItem('gedcom_root');
-      const savedFormat   = localStorage.getItem('gedcom_format');
-      const savedSettings = localStorage.getItem('gedcom_settings');
-      if (saved) {
-        const parsed: GedcomData = JSON.parse(saved);
-        setData(parsed);
-        setStatus('done');
-        if (savedRaw)      setRawGedcom(savedRaw);
-        if (savedFormat)   setPageFormat(savedFormat as PageFormat);
-        if (savedSettings) setSettings(JSON.parse(savedSettings));
-        if (savedRoot) {
-          const person: Person = JSON.parse(savedRoot);
-          setRootPerson(person);
-          setSearch(`${person.firstName} ${person.lastName}`);
-          const t = buildDescendantTree(person.id, parsed);
-          setTree(t);
-        } // end if savedRoot
-      } // end if saved
-    } catch { /* ignore */ }
-  }, []); // end useEffect load persisted data
+      const [personsRes, familiesRes] = await Promise.all([
+        fetch('/api/persons'),
+        fetch('/api/families'),
+      ]);
+      const personsData  = await personsRes.json();
+      const familiesData = await familiesRes.json();
 
-  // ── Persist whenever state changes ───────────────────────────
-  useEffect(() => {
-    if (data) localStorage.setItem('gedcom_data', JSON.stringify(data));
-  }, [data]); // end useEffect persist data
+      if (!personsRes.ok)  throw new Error(personsData.error);
+      if (!familiesRes.ok) throw new Error(familiesData.error);
 
-  useEffect(() => {
-    if (rawGedcom) localStorage.setItem('gedcom_raw', rawGedcom);
-  }, [rawGedcom]); // end useEffect persist rawGedcom
+      const gedcomData = dbToGedcomData(
+        personsData.persons  as DbPerson[],
+        familiesData.families as DbFamily[]
+      );
+      setData(gedcomData);
+    } catch (err: any) {
+      setDbError(err.message || 'Failed to load from database');
+    } finally {
+      setDbLoading(false);
+    }
+  } // end of loadFromDatabase
 
-  useEffect(() => {
-    if (rootPerson) localStorage.setItem('gedcom_root', JSON.stringify(rootPerson));
-  }, [rootPerson]); // end useEffect persist rootPerson
-
-  useEffect(() => {
-    localStorage.setItem('gedcom_format', pageFormat);
-  }, [pageFormat]); // end useEffect persist pageFormat
-
-  useEffect(() => {
-    localStorage.setItem('gedcom_settings', JSON.stringify(settings));
-  }, [settings]); // end useEffect persist settings
-
-  // ── GEDCOM file drop ──────────────────────────────────────────
-  const onDrop = useCallback((files: File[]) => {
+  // ── GEDCOM file drop — for import only ───────────────────────
+  const onDrop = useCallback(async (files: File[]) => {
     const file = files[0];
     if (!file) return;
-    setStatus('parsing');
-    setDbSaveResult(null);
-    setCurrentFile(file);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target?.result as string;
-        setRawGedcom(text);
-        const parsed = parseGedcom(text);
-        setData(parsed);
-        setStatus('done');
-        setRootPerson(null);
-        setTree(null);
-        setSearch('');
-      } catch { setStatus('error'); }
-    }; // end reader.onload
-    reader.readAsText(file);
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const formData = new FormData();
+      formData.append('file',   file);
+      formData.append('source', 'Geni');
+      const res  = await fetch('/api/import', { method: 'POST', body: formData });
+      const json = await res.json();
+      if (!res.ok) { setImportMsg(`❌ Error: ${json.error}`); return; }
+      setImportMsg(
+        `✅ Imported — ${json.personsAdded} people added, ${json.personsSkipped} already existed, ${json.familiesAdded} families added`
+      );
+      // Reload from database to reflect new data
+      await loadFromDatabase();
+    } catch {
+      setImportMsg('❌ Import failed');
+    } finally {
+      setImporting(false);
+    }
   }, []); // end onDrop
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop, accept: { 'text/plain': ['.ged', '.gedcom'] }, multiple: false,
   });
-
-  // ── Save to database ──────────────────────────────────────────
-  async function saveToDatabase() {
-    if (!currentFile) return;
-    setSavingToDb(true);
-    setDbSaveResult(null);
-    try {
-      const formData = new FormData();
-      formData.append('file',   currentFile);
-      formData.append('source', 'Geni');
-      const res  = await fetch('/api/import', { method: 'POST', body: formData });
-      const json = await res.json();
-      if (!res.ok) { setDbSaveResult(`❌ Error: ${json.error}`); return; }
-      setDbSaveResult(
-        `✅ Saved to database — ${json.personsAdded} people added, ${json.personsSkipped} already existed, ${json.familiesAdded} families added`
-      );
-    } catch {
-      setDbSaveResult('❌ Failed to save to database');
-    } finally {
-      setSavingToDb(false);
-    }
-  } // end of saveToDatabase
 
   // ── Backup database ───────────────────────────────────────────
   async function handleBackup() {
@@ -331,64 +283,6 @@ export default function Home() {
     URL.revokeObjectURL(url);
   } // end of downloadPdf
 
-  // ── Clear everything ──────────────────────────────────────────
-  function clearAll() {
-    localStorage.clear();
-    setStatus('idle');
-    setData(null);
-    setRawGedcom('');
-    setCurrentFile(null);
-    setRootPerson(null);
-    setTree(null);
-    setSearch('');
-    setTableSearch('');
-    setSettings(defaultSettings);
-    setDbSaveResult(null);
-    setBackupResult(null);
-  } // end of clearAll
-
-  // ── Export to Excel ───────────────────────────────────────────
-  function exportToExcel() {
-    if (!rawGedcom) return;
-    const lines = rawGedcom.split(/\r?\n/);
-    const rows: Record<string, string>[] = [];
-    let current: Record<string, string> = {};
-    let lastTag1  = '';
-    let nameCount = 0;
-
-    for (const line of lines) {
-      const parts = line.trim().split(' ');
-      const level = parseInt(parts[0]);
-      if (isNaN(level)) continue;
-      const tag   = parts[1];
-      const value = parts.slice(2).join(' ');
-
-      if (level === 0) {
-        if (current['ID']) rows.push(current);
-        current = {}; lastTag1 = ''; nameCount = 0;
-        if (parts[2] === 'INDI' || parts[2] === 'FAM') {
-          current['ID']   = tag.replace(/@/g, '');
-          current['TYPE'] = parts[2];
-        } // end if INDI/FAM
-      } else if (level === 1) {
-        lastTag1 = tag;
-        if (tag === 'NAME') {
-          nameCount++;
-          if (value) current[`NAME_${nameCount}`] = value;
-        } else {
-          if (value) current[tag] = value;
-        } // end if NAME
-      } else if (level === 2) {
-        if (value) current[`${lastTag1}_${tag}`] = value;
-      } // end if level
-    } // end for lines
-
-    if (current['ID']) rows.push(current);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'GEDCOM Raw');
-    XLSX.writeFile(wb, 'gedcom-raw.xlsx');
-  } // end of exportToExcel
-
   // ── Settings updater ──────────────────────────────────────────
   function setSetting<K extends keyof TreeSettings>(key: K, value: TreeSettings[K]) {
     setSettings(s => ({ ...s, [key]: value }));
@@ -417,50 +311,47 @@ export default function Home() {
 
             {/* Backup button — admin only */}
             {currentUser.role === 'admin' && (
-              <button
-                onClick={handleBackup}
-                disabled={backingUp}
-                className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium disabled:opacity-50"
-              >
+              <button onClick={handleBackup} disabled={backingUp}
+                className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium disabled:opacity-50">
                 {backingUp ? '⏳ Backing up…' : '💾 Backup DB'}
               </button>
-            )} {/* end admin backup button */}
+            )} {/* end admin backup */}
 
-            {/* Import & Compare link */}
-            <Link href="/import-review"
-              className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
-              📥 Import & Compare
-            </Link>
+            {/* Import GEDCOM drop area trigger */}
+            <div {...getRootProps()}>
+              <input {...getInputProps()} />
+              <button className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
+                {importing ? '⏳ Importing…' : '📥 Import GEDCOM'}
+              </button>
+            </div>
 
             {/* Export GEDCOM */}
             {currentUser.role !== 'viewer' && (
-              <button
-                onClick={() => setShowExportModal(true)}
-                className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium"
-              >
+              <button onClick={() => setShowExportModal(true)}
+                className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
                 📤 Export GEDCOM
               </button>
-            )} {/* end export gedcom button */}
+            )} {/* end export */}
 
-            {/* Change Log link */}
+            {/* Change Log */}
             <Link href="/changelog"
               className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
               📋 Change Log
             </Link>
 
-            {/* Data Quality link */}
+            {/* Data Quality */}
             <Link href="/quality"
               className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
               🔍 Data Quality
             </Link>
 
-            {/* Users link — admin only */}
+            {/* Users — admin only */}
             {currentUser.role === 'admin' && (
               <Link href="/admin/users"
                 className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
                 👥 Users
               </Link>
-            )} {/* end admin users link */}
+            )} {/* end admin users */}
 
             {/* User info */}
             <span className="opacity-80">
@@ -471,10 +362,8 @@ export default function Home() {
             </span>
 
             {/* Sign out */}
-            <button
-              onClick={handleLogout}
-              className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium"
-            >
+            <button onClick={handleLogout}
+              className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
               Sign out
             </button>
 
@@ -489,37 +378,57 @@ export default function Home() {
           {backupResult}
           <button onClick={() => setBackupResult(null)} className="ml-4 opacity-70 hover:opacity-100">✕</button>
         </div>
-      )} {/* end backup result banner */}
+      )} {/* end backup banner */}
+
+      {/* Import result banner */}
+      {importMsg && (
+        <div className={`px-8 py-2 text-sm font-medium text-center
+          ${importMsg.startsWith('✅') ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
+          {importMsg}
+          <button onClick={() => setImportMsg(null)} className="ml-4 opacity-70 hover:opacity-100">✕</button>
+        </div>
+      )} {/* end import banner */}
 
       <div className="p-8">
-        <p className="text-gray-500 mb-8 text-center">Import your family data to get started</p>
 
-        {/* ── Drop zone ── */}
-        {(status === 'idle' || status === 'error') && (
-          <div
-            {...getRootProps()}
-            className={`max-w-lg mx-auto border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-colors
-              ${isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-white hover:border-blue-400'}`}
-          >
-            <input {...getInputProps()} />
-            <div className="text-5xl mb-4">🌳</div>
-            <p className="text-lg font-semibold text-gray-700 mb-2">Import GEDCOM from Geni</p>
-            <p className="text-sm text-gray-400 mb-6">Drag & drop your .ged file, or click to browse</p>
-            <button className="bg-blue-700 hover:bg-blue-800 text-white font-semibold px-6 py-3 rounded-xl">
-              Choose GEDCOM File
-            </button>
-            {status === 'error' && (
-              <p className="mt-4 text-red-500 text-sm">Something went wrong. Please try again.</p>
-            )}
+        {/* ── Loading state ── */}
+        {dbLoading && (
+          <div className="text-center py-20">
+            <p className="text-blue-600 animate-pulse text-lg">Loading family data…</p>
           </div>
-        )} {/* end drop zone */}
+        )}
 
-        {status === 'parsing' && (
-          <p className="text-center text-blue-600 animate-pulse mt-12">Parsing your file…</p>
+        {/* ── Error state ── */}
+        {dbError && !dbLoading && (
+          <div className="max-w-lg mx-auto bg-red-50 border border-red-200 rounded-2xl p-8 text-center">
+            <p className="text-red-600 font-medium mb-2">Failed to load database</p>
+            <p className="text-red-400 text-sm mb-4">{dbError}</p>
+            <button onClick={loadFromDatabase}
+              className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-xl text-sm font-medium">
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* ── Empty database state ── */}
+        {!dbLoading && !dbError && data && data.persons.length === 0 && (
+          <div className="max-w-lg mx-auto border-2 border-dashed rounded-2xl p-12 text-center border-gray-300 bg-white">
+            <div className="text-5xl mb-4">🌳</div>
+            <p className="text-lg font-semibold text-gray-700 mb-2">No data in database yet</p>
+            <p className="text-sm text-gray-400 mb-6">
+              Click <strong>📥 Import GEDCOM</strong> in the top bar to import your first GEDCOM file
+            </p>
+            <div {...getRootProps()}
+              className={`border-2 border-dashed rounded-xl p-8 cursor-pointer transition-colors
+                ${isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'}`}>
+              <input {...getInputProps()} />
+              <p className="text-sm text-gray-500">Or drag & drop a .ged file here</p>
+            </div>
+          </div>
         )}
 
         {/* ── Main UI ── */}
-        {status === 'done' && data && (
+        {!dbLoading && !dbError && data && data.persons.length > 0 && (
           <div className="max-w-4xl mx-auto">
 
             {/* Summary bar */}
@@ -532,45 +441,17 @@ export default function Home() {
                 <p className="text-3xl font-bold">{data.families.length}</p>
                 <p className="text-sm opacity-80">Families</p>
               </div>
-              {currentFile && (
-                <button
-                  onClick={saveToDatabase}
-                  disabled={savingToDb}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-4 py-4 text-sm font-semibold disabled:opacity-50"
-                >
-                  {savingToDb ? '⏳ Saving…' : '💾 Save to Database'}
-                </button>
-              )} {/* end save to db button */}
-              <button onClick={exportToExcel}
-                className="bg-green-100 hover:bg-green-200 text-green-700 rounded-xl px-4 py-4 text-sm font-semibold">
-                📊 Export Excel
-              </button>
-              <button onClick={clearAll}
-                className="bg-red-100 hover:bg-red-200 text-red-700 rounded-xl px-4 py-4 text-sm font-semibold">
-                🗑 Clear saved data
-              </button>
-              <button onClick={() => setStatus('idle')}
-                className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl px-4 py-4 text-sm font-semibold">
-                📂 Load new file
+              <button onClick={() => loadFromDatabase()}
+                className="bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-xl px-4 py-4 text-sm font-semibold">
+                🔄 Refresh
               </button>
               <button
                 onClick={handleGenerateReports}
                 disabled={generatingReports}
-                className="bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-xl px-4 py-4 text-sm font-semibold disabled:opacity-50"
-              >
+                className="bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-xl px-4 py-4 text-sm font-semibold disabled:opacity-50">
                 {generatingReports ? '⏳ Generating...' : '📋 Generate Reports'}
               </button>
-            </div> {/* end summary bar */}
-
-            {/* DB save result */}
-            {dbSaveResult && (
-              <div className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium
-                ${dbSaveResult.startsWith('✅')
-                  ? 'bg-green-50 text-green-700 border border-green-200'
-                  : 'bg-red-50 text-red-700 border border-red-200'}`}>
-                {dbSaveResult}
-              </div>
-            )} {/* end db save result */}
+            </div>
 
             {/* Language filter */}
             <div className="flex gap-2 mb-4 items-center">
@@ -582,7 +463,7 @@ export default function Home() {
                   {l === 'all' ? '🌐 All' : l === 'he' ? '🇮🇱 Hebrew' : '🇬🇧 English'}
                 </button>
               ))}
-            </div> {/* end language filter */}
+            </div>
 
             {/* Settings toggle */}
             <div className="mb-4">
@@ -736,7 +617,7 @@ export default function Home() {
                   </button>
                 </div>
               )} {/* end PDF controls */}
-            </div> {/* end root person selector */}
+            </div>
 
             {/* Table search */}
             <input type="text" placeholder="Search table by name…"
@@ -798,24 +679,13 @@ export default function Home() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md mx-4">
             <h2 className="text-xl font-bold text-blue-900 mb-2">📤 Export GEDCOM</h2>
-            <p className="text-gray-500 text-sm mb-6">
-              Choose what to export from the database.
-            </p>
-
+            <p className="text-gray-500 text-sm mb-6">Choose what to export from the database.</p>
             <div className="space-y-3 mb-6">
-
-              {/* Export all */}
-              <button
-                onClick={() => handleExportGedcom()}
-                className="w-full bg-blue-50 hover:bg-blue-100 border-2 border-blue-200 rounded-xl p-4 text-left transition-colors"
-              >
+              <button onClick={() => handleExportGedcom()}
+                className="w-full bg-blue-50 hover:bg-blue-100 border-2 border-blue-200 rounded-xl p-4 text-left transition-colors">
                 <p className="font-semibold text-blue-900">🌳 Export entire tree</p>
-                <p className="text-sm text-gray-500 mt-1">
-                  All people and families in the database
-                </p>
+                <p className="text-sm text-gray-500 mt-1">All people and families in the database</p>
               </button>
-
-              {/* Export from any root — search */}
               <div className="bg-green-50 border-2 border-green-200 rounded-xl p-4">
                 <p className="font-semibold text-green-800 mb-3">👤 Export descendants of…</p>
                 <ExportRootSearch
@@ -824,13 +694,9 @@ export default function Home() {
                   onSelect={(p) => handleExportGedcom(p.id)}
                 />
               </div>
-
             </div>
-
-            <button
-              onClick={() => setShowExportModal(false)}
-              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-xl text-sm font-medium"
-            >
+            <button onClick={() => setShowExportModal(false)}
+              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-xl text-sm font-medium">
               Cancel
             </button>
           </div>
