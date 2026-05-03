@@ -1,8 +1,3 @@
-/**
- * Converts database rows (from /api/persons and /api/families)
- * into the GedcomData format that the tree builder and reports expect.
- * This is the bridge between the database and the existing rendering code.
- */
 import { GedcomData, Person, Family } from './parseGedcom';
 
 export interface DbPerson {
@@ -18,6 +13,7 @@ export interface DbPerson {
   death_date:    string;
   death_place:   string;
   notes:         string;
+  photo_url:     string; // ← Geni photo URL
 } // end of DbPerson interface
 
 export interface DbFamily {
@@ -36,9 +32,8 @@ export function dbToGedcomData(
   dbFamilies: DbFamily[]
 ): GedcomData {
 
-  // Convert DB persons to GedcomData Person format
   const persons: Person[] = dbPersons.map(p => ({
-    id:          p.id,                          // Use DB UUID as ID
+    id:          p.id,
     firstName:   p.first_name_en || p.first_name_he || '',
     lastName:    p.last_name_en  || p.last_name_he  || '',
     firstNameEn: p.first_name_en || '',
@@ -50,17 +45,17 @@ export function dbToGedcomData(
     birthPlace:  p.birth_place   || '',
     deathDate:   p.death_date    || '',
     deathPlace:  p.death_place   || '',
+    photoUrl:    p.photo_url     || '',
   })); // end persons map
 
-  // Convert DB families to GedcomData Family format
   const families: Family[] = dbFamilies.map(f => ({
-    id:           f.id,
-    husbandId:    f.husband_id    || '',
-    wifeId:       f.wife_id       || '',
-    childrenIds:  f.children_ids  || [],
-    marriageDate: f.marriage_date || '',
-    marriagePlace:f.marriage_place|| '',
-    divorced:     f.divorced      || false,
+    id:            f.id,
+    husbandId:     f.husband_id    || '',
+    wifeId:        f.wife_id       || '',
+    childrenIds:   f.children_ids  || [],
+    marriageDate:  f.marriage_date || '',
+    marriagePlace: f.marriage_place|| '',
+    divorced:      f.divorced      || false,
   })); // end families map
 
   return { persons, families };

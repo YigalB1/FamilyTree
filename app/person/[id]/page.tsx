@@ -1,6 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
 interface Person {
@@ -116,6 +116,142 @@ function EditField({ label, fieldKey, form, setForm, editing, person }: EditFiel
   );
 } // end of EditField
 
+// ── PhotoSection — defined OUTSIDE PersonPage ─────────────────────
+
+interface PhotoSectionProps {
+  personId: string;
+  canEdit:  boolean;
+} // end of PhotoSectionProps interface
+
+function PhotoSection({ personId, canEdit }: PhotoSectionProps) {
+  const [photoUrl,  setPhotoUrl]  = useState<string | null>(null);
+  const [source,    setSource]    = useState<'local' | 'geni' | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [deleting,  setDeleting]  = useState(false);
+  const [photoMsg,  setPhotoMsg]  = useState('');
+  const fileInputRef              = useRef<HTMLInputElement>(null);
+
+  // Load photo on mount
+  useEffect(() => {
+    fetch(`/api/photos/${personId}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.exists) {
+          setPhotoUrl(d.url);
+          setSource(d.source);
+        } // end if exists
+      })
+      .catch(() => {});
+  }, [personId]); // end useEffect load photo
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setPhotoMsg('');
+    try {
+      const formData = new FormData();
+      formData.append('photo', file);
+      const res  = await fetch(`/api/photos/${personId}`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) { setPhotoMsg(`❌ ${data.error}`); return; }
+      setPhotoUrl(data.url + '?t=' + Date.now());
+      setSource('local');
+      setPhotoMsg('✅ Photo uploaded');
+    } catch {
+      setPhotoMsg('❌ Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  } // end of handleUpload
+
+  async function handleDelete() {
+    if (!confirm(source === 'local'
+      ? 'Remove local photo? The Geni photo will be shown instead if available.'
+      : 'Remove this photo?')) return;
+    setDeleting(true);
+    try {
+      const res  = await fetch(`/api/photos/${personId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.fallback) {
+        setPhotoUrl(data.fallback.url);
+        setSource('geni');
+        setPhotoMsg('✅ Local photo removed — showing Geni photo');
+      } else {
+        setPhotoUrl(null);
+        setSource(null);
+        setPhotoMsg('✅ Photo removed');
+      } // end if fallback
+    } catch {
+      setPhotoMsg('❌ Failed to remove photo');
+    } finally {
+      setDeleting(false);
+    }
+  } // end of handleDelete
+
+  return (
+    <div className="bg-white rounded-2xl shadow p-6">
+      <h3 className="font-bold text-blue-900 mb-4 border-b pb-2">Photo</h3>
+      <div className="flex flex-col items-center gap-3">
+
+        {/* Photo or placeholder */}
+        {photoUrl ? (
+          <div className="relative">
+            <img src={photoUrl} alt="Profile photo"
+              className="w-40 h-40 object-cover rounded-xl border-2 border-gray-200 shadow" />
+            <span className={`absolute bottom-1 right-1 text-xs px-2 py-0.5 rounded-full font-medium
+              ${source === 'local' ? 'bg-blue-600 text-white' : 'bg-orange-500 text-white'}`}>
+              {source === 'local' ? '💾 Local' : '🌐 Geni'}
+            </span>
+          </div>
+        ) : (
+          <div className="w-40 h-40 bg-gray-100 rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center">
+            <span className="text-4xl">👤</span>
+          </div>
+        )} {/* end photo/placeholder */}
+
+        {/* Upload / delete buttons */}
+        {canEdit && (
+          <div className="flex gap-2 flex-wrap justify-center">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
+            >
+              {uploading ? '⏳ Uploading…' : source === 'local' ? '📷 Replace' : '📷 Upload local'}
+            </button>
+            {photoUrl && source === 'local' && (
+              <button onClick={handleDelete} disabled={deleting}
+                className="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50">
+                {deleting ? '⏳…' : '🗑 Remove'}
+              </button>
+            )}
+          </div>
+        )} {/* end edit buttons */}
+
+        {/* Hidden file input */}
+        <input ref={fileInputRef} type="file"
+          accept="image/jpeg,image/jpg,image/png,image/webp"
+          onChange={handleUpload} className="hidden" />
+
+        {/* Message */}
+        {photoMsg && (
+          <p className={`text-xs font-medium text-center
+            ${photoMsg.startsWith('✅') ? 'text-green-600' : 'text-red-500'}`}>
+            {photoMsg}
+          </p>
+        )}
+
+        <p className="text-xs text-gray-400 text-center">
+          JPG, PNG or WebP · Max 5MB
+          {source === 'geni' && ' · Showing Geni photo'}
+        </p>
+      </div>
+    </div>
+  );
+} // end of PhotoSection
+
 // ── AddPersonModal — defined OUTSIDE PersonPage ───────────────────
 
 interface AddPersonModalProps {
@@ -192,12 +328,12 @@ function AddPersonModal({ relationship, relatedPerson, families, onClose, onSave
           <div className="bg-gray-50 rounded-xl p-4">
             <h3 className="font-semibold text-blue-900 mb-3 text-sm uppercase tracking-wide">Names</h3>
             <div className="grid grid-cols-2 gap-3">
-              {[
+              {([
                 { label: 'First name (Hebrew)',  key: 'first_name_he' as keyof AddPersonForm },
                 { label: 'Last name (Hebrew)',   key: 'last_name_he'  as keyof AddPersonForm },
                 { label: 'First name (English)', key: 'first_name_en' as keyof AddPersonForm },
                 { label: 'Last name (English)',  key: 'last_name_en'  as keyof AddPersonForm },
-              ].map(({ label, key }) => (
+              ]).map(({ label, key }) => (
                 <label key={key} className="flex flex-col gap-1 text-sm text-gray-600">
                   {label}
                   <input type="text" value={form[key] as string}
@@ -221,12 +357,12 @@ function AddPersonModal({ relationship, relatedPerson, families, onClose, onSave
           <div className="bg-gray-50 rounded-xl p-4">
             <h3 className="font-semibold text-blue-900 mb-3 text-sm uppercase tracking-wide">Dates & Places</h3>
             <div className="grid grid-cols-2 gap-3">
-              {[
+              {([
                 { label: 'Birth date',  key: 'birth_date'  as keyof AddPersonForm, ph: 'e.g. 22 JAN 1961' },
                 { label: 'Birth place', key: 'birth_place' as keyof AddPersonForm, ph: '' },
                 { label: 'Death date',  key: 'death_date'  as keyof AddPersonForm, ph: 'e.g. 15 MAR 2010' },
                 { label: 'Death place', key: 'death_place' as keyof AddPersonForm, ph: '' },
-              ].map(({ label, key, ph }) => (
+              ]).map(({ label, key, ph }) => (
                 <label key={key} className="flex flex-col gap-1 text-sm text-gray-600">
                   {label}
                   <input type="text" value={form[key] as string} placeholder={ph}
@@ -291,14 +427,12 @@ function AddPersonModal({ relationship, relatedPerson, families, onClose, onSave
             <h3 className="font-semibold text-blue-900 mb-2 text-sm uppercase tracking-wide">Notes</h3>
             <textarea value={form.notes} rows={3}
               onChange={e => setField('notes', e.target.value)}
-              placeholder="Optional notes about this person"
+              placeholder="Optional notes"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
 
           {/* Error */}
-          {error && (
-            <p className="text-red-500 text-sm bg-red-50 rounded-lg px-4 py-2">{error}</p>
-          )}
+          {error && <p className="text-red-500 text-sm bg-red-50 rounded-lg px-4 py-2">{error}</p>}
 
           {/* Buttons */}
           <div className="flex gap-3 pt-2">
@@ -329,6 +463,7 @@ export default function PersonPage() {
   const [parentFamily, setParentFamily] = useState<Family | null>(null);
   const [children,     setChildren]     = useState<FamilyMember[]>([]);
   const [changeLog,    setChangeLog]    = useState<ChangeLogEntry[]>([]);
+  const [currentUser,  setCurrentUser]  = useState<{role: string} | null>(null);
   const [loading,      setLoading]      = useState(true);
   const [editing,      setEditing]      = useState(false);
   const [saving,       setSaving]       = useState(false);
@@ -337,7 +472,10 @@ export default function PersonPage() {
   const [form,         setForm]         = useState<Partial<Person>>({});
   const [addModal,     setAddModal]     = useState<RelationshipType | null>(null);
 
-  useEffect(() => { loadPerson(); }, [id]); // end useEffect
+  useEffect(() => {
+    fetch('/api/auth/me').then(r => r.json()).then(d => { if (d.user) setCurrentUser(d.user); });
+    loadPerson();
+  }, [id]); // end useEffect
 
   async function loadPerson() {
     setLoading(true);
@@ -387,6 +525,8 @@ export default function PersonPage() {
     loadPerson();
   } // end of handleAddSaved
 
+  // ── Loading / error states ──────────────────────────────────────
+
   if (loading) return (
     <main className="min-h-screen bg-gray-50 flex items-center justify-center">
       <p className="text-blue-600 animate-pulse text-lg">Loading…</p>
@@ -404,10 +544,11 @@ export default function PersonPage() {
 
   if (!person) return null;
 
-  const displayName = `${person.first_name_he || person.first_name_en || ''} ${person.last_name_he || person.last_name_en || ''}`.trim();
-  const bgColor     = person.sex === 'M' ? 'bg-blue-50 border-blue-200'
+  const displayName    = `${person.first_name_he || person.first_name_en || ''} ${person.last_name_he || person.last_name_en || ''}`.trim();
+  const bgColor        = person.sex === 'M' ? 'bg-blue-50 border-blue-200'
     : person.sex === 'F' ? 'bg-pink-50 border-pink-200' : 'bg-gray-50 border-gray-200';
   const editFieldProps = { form, setForm, editing, person };
+  const canEdit        = currentUser?.role !== 'viewer';
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -440,26 +581,32 @@ export default function PersonPage() {
             <div className="flex flex-wrap gap-2">
               {!editing ? (
                 <>
-                  <button onClick={() => { setEditing(true); setSaveMsg(''); }}
-                    className="bg-blue-700 hover:bg-blue-800 text-white px-3 py-2 rounded-lg text-sm font-medium">
-                    ✏️ Edit
-                  </button>
-                  <button onClick={() => setAddModal('child')}
-                    className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
-                    + Child
-                  </button>
-                  <button onClick={() => setAddModal('spouse')}
-                    className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
-                    + Spouse
-                  </button>
-                  <button onClick={() => setAddModal('parent')}
-                    className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
-                    + Parent
-                  </button>
-                  <button onClick={() => setAddModal('sibling')}
-                    className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
-                    + Sibling
-                  </button>
+                  {canEdit && (
+                    <button onClick={() => { setEditing(true); setSaveMsg(''); }}
+                      className="bg-blue-700 hover:bg-blue-800 text-white px-3 py-2 rounded-lg text-sm font-medium">
+                      ✏️ Edit
+                    </button>
+                  )}
+                  {canEdit && (
+                    <>
+                      <button onClick={() => setAddModal('child')}
+                        className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
+                        + Child
+                      </button>
+                      <button onClick={() => setAddModal('spouse')}
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
+                        + Spouse
+                      </button>
+                      <button onClick={() => setAddModal('parent')}
+                        className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
+                        + Parent
+                      </button>
+                      <button onClick={() => setAddModal('sibling')}
+                        className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
+                        + Sibling
+                      </button>
+                    </>
+                  )}
                 </>
               ) : (
                 <>
@@ -485,8 +632,13 @@ export default function PersonPage() {
 
         <div className="grid grid-cols-2 gap-6">
 
-          {/* Left — details */}
+          {/* ── Left column ── */}
           <div className="space-y-4">
+
+            {/* Photo */}
+            <PhotoSection personId={person.id} canEdit={canEdit} />
+
+            {/* Names */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h3 className="font-bold text-blue-900 mb-4 border-b pb-2">Names</h3>
               <div className="space-y-3">
@@ -509,6 +661,7 @@ export default function PersonPage() {
               </div>
             </div>
 
+            {/* Dates & Places */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h3 className="font-bold text-blue-900 mb-4 border-b pb-2">Dates & Places</h3>
               <div className="space-y-3">
@@ -519,6 +672,7 @@ export default function PersonPage() {
               </div>
             </div>
 
+            {/* Notes */}
             <div className="bg-white rounded-2xl shadow p-6">
               <h3 className="font-bold text-blue-900 mb-4 border-b pb-2">Notes</h3>
               {editing ? (
@@ -534,7 +688,7 @@ export default function PersonPage() {
             </div>
           </div>
 
-          {/* Right — family */}
+          {/* ── Right column — family ── */}
           <div className="space-y-4">
 
             {parentFamily && (

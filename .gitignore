@@ -44,3 +44,5 @@ outputs/
 backups/
 data/
 *.sql.dump
+
+public/photos/
