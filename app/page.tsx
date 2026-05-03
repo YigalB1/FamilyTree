@@ -353,6 +353,15 @@ export default function Home() {
               </Link>
             )} {/* end admin users */}
 
+            {/* Photos — admin only */}
+            {currentUser.role === 'admin' && (
+              <Link href="/admin/photos"
+                className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
+                📸 Photos
+              </Link>
+            )} {/* end admin photos */}
+
+
             {/* User info */}
             <span className="opacity-80">
               {currentUser.name}
