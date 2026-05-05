@@ -29,6 +29,11 @@ export interface GedcomData {
   families: Family[];
 } // end of GedcomData interface
 
+// Detect Hebrew characters
+function isHebrewText(text: string): boolean {
+  return /[\u0590-\u05FF]/.test(text);
+} // end of isHebrewText
+
 export function parseGedcom(text: string): GedcomData {
   const lines   = text.split(/\r?\n/);
   const persons:  Person[] = [];
@@ -53,14 +58,17 @@ export function parseGedcom(text: string): GedcomData {
     // ── Level 0 — new record ──────────────────────────────────
     if (level === 0) {
 
-      // Save pending photo if we were in an OBJE block with a FILE url
-      // (handles cases where FORM tag may be missing)
+      // Save pending photo if in OBJE block
       if (inObje && pendingFileUrl && currentPerson && !currentPerson.photoUrl) {
         currentPerson.photoUrl = pendingFileUrl;
       } // end if pending photo
 
-      // Save previous record
-      if (currentPerson) persons.push(currentPerson as Person);
+      // Resolve firstName/lastName from He/En after all NAMEs parsed
+      if (currentPerson) {
+        currentPerson.firstName = currentPerson.firstNameEn || currentPerson.firstNameHe || '';
+        currentPerson.lastName  = currentPerson.lastNameEn  || currentPerson.lastNameHe  || '';
+        persons.push(currentPerson as Person);
+      } // end if currentPerson
       if (currentFamily) families.push(currentFamily as Family);
 
       // Reset all state
@@ -95,22 +103,18 @@ export function parseGedcom(text: string): GedcomData {
     // ── Level 1 ───────────────────────────────────────────────
     } else if (level === 1) {
 
-      // Update sub-block flags
       inBirt = tag === 'BIRT';
       inDeat = tag === 'DEAT';
       inMarr = tag === 'MARR';
 
-      // When entering a new OBJE block, reset pending URL
       if (tag === 'OBJE') {
         inObje         = true;
         pendingFileUrl = '';
       } else {
-        // Any other level-1 tag ends the OBJE block
-        // Save pending photo before leaving OBJE
         if (inObje && pendingFileUrl && currentPerson && !currentPerson.photoUrl) {
           currentPerson.photoUrl = pendingFileUrl;
           pendingFileUrl = '';
-        } // end if save pending
+        } // end if save pending photo
         inObje = false;
       } // end if OBJE
 
@@ -120,18 +124,18 @@ export function parseGedcom(text: string): GedcomData {
           const nameParts = value.split('/');
           const first     = nameParts[0]?.trim() || '';
           const last      = nameParts[1]?.trim() || '';
-          if (nameCount === 1) {
-            // First NAME — English (Geni convention)
-            currentPerson.firstName   = first;
-            currentPerson.lastName    = last;
-            currentPerson.firstNameEn = first;
-            currentPerson.lastNameEn  = last;
+
+          // Detect Hebrew vs English by character set — not by position
+          // Geni is inconsistent about which NAME comes first
+          if (isHebrewText(first + last)) {
+            if (!currentPerson.firstNameHe) currentPerson.firstNameHe = first;
+            if (!currentPerson.lastNameHe)  currentPerson.lastNameHe  = last;
           } else {
-            // Second NAME — Hebrew
-            currentPerson.firstNameHe = first;
-            currentPerson.lastNameHe  = last;
-          } // end if nameCount
+            if (!currentPerson.firstNameEn) currentPerson.firstNameEn = first;
+            if (!currentPerson.lastNameEn)  currentPerson.lastNameEn  = last;
+          } // end if Hebrew
         } // end if NAME
+
         if (tag === 'SEX') currentPerson.sex = value;
       } // end if currentPerson level 1
 
@@ -153,12 +157,7 @@ export function parseGedcom(text: string): GedcomData {
         if (inDeat && tag === 'DATE')  currentPerson.deathDate  = value;
         if (inDeat && tag === 'PLAC')  currentPerson.deathPlace = value;
 
-        // Hebrew language marker — confirms second NAME is Hebrew
-        if (tag === 'LANG' && value.toLowerCase() === 'hebrew') {
-          // Already assigned to firstNameHe/lastNameHe above — nothing extra needed
-        } // end if LANG
-
-        // Geni format: 1 OBJE / 2 FILE https://... / 3 FORM jpg
+        // Geni photo: 1 OBJE / 2 FILE https://...
         if (inObje && tag === 'FILE' && value.startsWith('http')) {
           pendingFileUrl = value;
         } // end if FILE url
@@ -172,17 +171,36 @@ export function parseGedcom(text: string): GedcomData {
     // ── Level 3 ───────────────────────────────────────────────
     } else if (level === 3) {
 
-      if (currentPerson && inObje) {
-        // Geni puts FORM at level 3: 1 OBJE / 2 FILE url / 3 FORM jpg
-        if (tag === 'FORM' && pendingFileUrl) {
+      if (currentPerson) {
+
+        // Photo FORM at level 3 (Geni: 1 OBJE / 2 FILE url / 3 FORM jpg)
+        if (inObje && tag === 'FORM' && pendingFileUrl) {
           const fmt = value.toLowerCase().trim();
           if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(fmt)) {
             if (!currentPerson.photoUrl) {
               currentPerson.photoUrl = pendingFileUrl;
             } // end if no photo yet
           } // end if image format
-          pendingFileUrl = ''; // consumed
+          pendingFileUrl = '';
         } // end if FORM
+
+        // Geni uses ADDR/CITY instead of PLAC for birth/death place
+        // Structure: 1 BIRT / 2 ADDR / 3 CITY Jerusalem
+        if (inBirt && tag === 'CITY' && !currentPerson.birthPlace) {
+          currentPerson.birthPlace = value;
+        } // end if birth city
+        if (inDeat && tag === 'CITY' && !currentPerson.deathPlace) {
+          currentPerson.deathPlace = value;
+        } // end if death city
+
+        // Country as fallback if no city
+        if (inBirt && tag === 'CTRY' && !currentPerson.birthPlace) {
+          currentPerson.birthPlace = value;
+        } // end if birth country
+        if (inDeat && tag === 'CTRY' && !currentPerson.deathPlace) {
+          currentPerson.deathPlace = value;
+        } // end if death country
+
       } // end if currentPerson level 3
 
     } // end if level
@@ -192,7 +210,11 @@ export function parseGedcom(text: string): GedcomData {
   if (inObje && pendingFileUrl && currentPerson && !currentPerson.photoUrl) {
     currentPerson.photoUrl = pendingFileUrl;
   } // end if pending photo
-  if (currentPerson) persons.push(currentPerson as Person);
+  if (currentPerson) {
+    currentPerson.firstName = currentPerson.firstNameEn || currentPerson.firstNameHe || '';
+    currentPerson.lastName  = currentPerson.lastNameEn  || currentPerson.lastNameHe  || '';
+    persons.push(currentPerson as Person);
+  } // end if currentPerson
   if (currentFamily) families.push(currentFamily as Family);
 
   return { persons, families };

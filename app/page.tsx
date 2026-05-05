@@ -282,12 +282,25 @@ export default function Home() {
                 {backingUp ? '⏳ Backing up…' : '💾 Backup DB'}
               </button>
             )}
+
+
+
+            {/* Import GEDCOM — direct */}
             <div {...getRootProps()}>
               <input {...getInputProps()} />
               <button className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
-                {importing ? '⏳ Importing…' : '📥 Import GEDCOM'}
+                {importing ? '⏳ Importing…' : '📥 Quick Import'}
               </button>
             </div>
+
+            {/* Import & Compare */}
+            <Link href="/import-review"
+              className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
+              🔍 Import & Compare
+            </Link>
+
+
+
             {currentUser.role !== 'viewer' && (
               <button onClick={() => setShowExportModal(true)}
                 className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
