@@ -131,7 +131,6 @@ function PhotoSection({ personId, canEdit }: PhotoSectionProps) {
   const [photoMsg,  setPhotoMsg]  = useState('');
   const fileInputRef              = useRef<HTMLInputElement>(null);
 
-  // Load photo on mount
   useEffect(() => {
     fetch(`/api/photos/${personId}`)
       .then(r => r.json())
@@ -195,7 +194,6 @@ function PhotoSection({ personId, canEdit }: PhotoSectionProps) {
       <h3 className="font-bold text-blue-900 mb-4 border-b pb-2">Photo</h3>
       <div className="flex flex-col items-center gap-3">
 
-        {/* Photo or placeholder */}
         {photoUrl ? (
           <div className="relative">
             <img src={photoUrl} alt="Profile photo"
@@ -211,14 +209,12 @@ function PhotoSection({ personId, canEdit }: PhotoSectionProps) {
           </div>
         )} {/* end photo/placeholder */}
 
-        {/* Upload / delete buttons */}
         {canEdit && (
           <div className="flex gap-2 flex-wrap justify-center">
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
-            >
+              className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50">
               {uploading ? '⏳ Uploading…' : source === 'local' ? '📷 Replace' : '📷 Upload local'}
             </button>
             {photoUrl && source === 'local' && (
@@ -230,12 +226,10 @@ function PhotoSection({ personId, canEdit }: PhotoSectionProps) {
           </div>
         )} {/* end edit buttons */}
 
-        {/* Hidden file input */}
         <input ref={fileInputRef} type="file"
           accept="image/jpeg,image/jpg,image/png,image/webp"
           onChange={handleUpload} className="hidden" />
 
-        {/* Message */}
         {photoMsg && (
           <p className={`text-xs font-medium text-center
             ${photoMsg.startsWith('✅') ? 'text-green-600' : 'text-red-500'}`}>
@@ -562,7 +556,7 @@ export default function PersonPage() {
 
       <div className="max-w-4xl mx-auto p-8">
 
-        {/* Person header */}
+        {/* Person header card */}
         <div className={`rounded-2xl border-2 p-6 mb-6 ${bgColor}`}>
           <div className="flex items-start justify-between flex-wrap gap-4">
             <div>
@@ -607,6 +601,19 @@ export default function PersonPage() {
                       </button>
                     </>
                   )}
+                  {/* Form download buttons — available to all users incl. viewers */}
+                  <a
+                    href={`/api/persons/${person.id}/form?type=blank`}
+                    target="_blank"
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium">
+                    📄 Blank Form
+                  </a>
+                  <a
+                    href={`/api/persons/${person.id}/form?type=prefilled`}
+                    target="_blank"
+                    className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-2 rounded-lg text-sm font-medium">
+                    📋 Pre-filled Form
+                  </a>
                 </>
               ) : (
                 <>
@@ -624,7 +631,8 @@ export default function PersonPage() {
           </div>
 
           {saveMsg && (
-            <p className={`mt-3 text-sm font-medium ${saveMsg.startsWith('✅') ? 'text-green-600' : 'text-red-500'}`}>
+            <p className={`mt-3 text-sm font-medium
+              ${saveMsg.startsWith('✅') ? 'text-green-600' : 'text-red-500'}`}>
               {saveMsg}
             </p>
           )}
@@ -686,6 +694,7 @@ export default function PersonPage() {
                 </p>
               )}
             </div>
+
           </div>
 
           {/* ── Right column — family ── */}
