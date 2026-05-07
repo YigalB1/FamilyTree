@@ -90,7 +90,12 @@ export default function Home() {
   const [tree, setTree]                   = useState<TreeNode | null>(null);
   const [pageFormat, setPageFormat]       = useState<PageFormat>('A4L');
   const [tileFormat, setTileFormat]       = useState<TileFormat>('A4');
-  const [lang, setLang]                   = useState<Lang>('he');
+  const [lang, setLang] = useState<Lang>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('preferred_lang') as Lang) || 'he';
+    }
+    return 'he';
+  });
   const [settings, setSettings]           = useState<TreeSettings>(defaultSettings);
   const [showSettings, setShowSettings]   = useState(false);
   const [generatingReports, setGeneratingReports] = useState(false);
@@ -123,15 +128,16 @@ export default function Home() {
       const gedcomData = dbToGedcomData(pd.persons as DbPerson[], fd.families as DbFamily[]);
       setData(gedcomData);
 
-      // Set default root person from saved ID or first person
+      // Set default root person from saved ID only — don't auto-select random person
       if (gedcomData.persons.length > 0) {
         const savedId = localStorage.getItem('default_root_id');
         const found   = savedId ? gedcomData.persons.find(p => p.id === savedId) : null;
-        const def     = found || gedcomData.persons[0];
-        setRootPerson(def);
-        setSearch(`${def.firstName} ${def.lastName}`);
-        const t = buildDescendantTree(def.id, gedcomData);
-        setTree(t);
+        if (found) {
+          setRootPerson(found);
+          setSearch(`${found.firstName} ${found.lastName}`);
+          const t = buildDescendantTree(found.id, gedcomData);
+          setTree(t);
+        } // end if found saved root
       } // end if persons exist
     } catch (err: any) {
       setDbError(err.message || 'Failed to load from database');
@@ -282,25 +288,12 @@ export default function Home() {
                 {backingUp ? '⏳ Backing up…' : '💾 Backup DB'}
               </button>
             )}
-
-
-
-            {/* Import GEDCOM — direct */}
             <div {...getRootProps()}>
               <input {...getInputProps()} />
               <button className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
-                {importing ? '⏳ Importing…' : '📥 Quick Import'}
+                {importing ? '⏳ Importing…' : '📥 Import GEDCOM'}
               </button>
             </div>
-
-            {/* Import & Compare */}
-            <Link href="/import-review"
-              className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
-              🔍 Import & Compare
-            </Link>
-
-
-
             {currentUser.role !== 'viewer' && (
               <button onClick={() => setShowExportModal(true)}
                 className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
@@ -494,6 +487,10 @@ export default function Home() {
                       className="bg-blue-700 hover:bg-blue-800 text-white font-semibold px-5 py-2 rounded-xl text-sm transition-colors">
                       ⬇ Download PDF
                     </button>
+                    <Link href="/tree"
+                      className="bg-green-600 hover:bg-green-700 text-white font-semibold px-5 py-2 rounded-xl text-sm">
+                      🌳 View Tree
+                    </Link>
                   </div>
 
                   {/* Tiled print */}
