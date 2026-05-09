@@ -17,8 +17,6 @@ interface Person {
   death_place:   string;
   notes:         string;
   updated_at:    string;
-  birth_last_name_he: string;
-  birth_last_name_en: string;
 } // end of Person interface
 
 interface FamilyMember {
@@ -521,6 +519,31 @@ export default function PersonPage() {
     loadPerson();
   } // end of handleAddSaved
 
+  const [deleting,     setDeleting]     = useState(false);
+  const [deleteError,  setDeleteError]  = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      const res  = await fetch(`/api/persons/${id}/delete`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        setDeleteError(data.error || 'Delete failed');
+        setConfirmDelete(false);
+        return;
+      }
+      // Redirect to home after successful delete
+      window.location.href = '/';
+    } catch {
+      setDeleteError('Delete failed. Please try again.');
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  } // end of handleDelete
+
   // ── Loading / error states ──────────────────────────────────────
 
   if (loading) return (
@@ -581,6 +604,13 @@ export default function PersonPage() {
                     <button onClick={() => { setEditing(true); setSaveMsg(''); }}
                       className="bg-blue-700 hover:bg-blue-800 text-white px-3 py-2 rounded-lg text-sm font-medium">
                       ✏️ Edit
+                    </button>
+                  )}
+                  {currentUser?.role === 'admin' && !editing && (
+                    <button
+                      onClick={() => { setConfirmDelete(true); setDeleteError(''); }}
+                      className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
+                      🗑 Delete
                     </button>
                   )}
                   {canEdit && (
@@ -656,8 +686,6 @@ export default function PersonPage() {
                 <EditField label="Last name (Hebrew)"   fieldKey="last_name_he"  {...editFieldProps} />
                 <EditField label="First name (English)" fieldKey="first_name_en" {...editFieldProps} />
                 <EditField label="Last name (English)"  fieldKey="last_name_en"  {...editFieldProps} />
-                <EditField label="Birth last name (Hebrew)"  fieldKey="birth_last_name_he" {...editFieldProps} />
-                <EditField label="Birth last name (English)" fieldKey="birth_last_name_en" {...editFieldProps} />
                 {editing && (
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sex</label>
@@ -822,6 +850,49 @@ export default function PersonPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Confirm Delete Modal ── */}
+      {confirmDelete && person && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+            <div className="text-4xl text-center mb-4">⚠️</div>
+            <h2 className="text-xl font-bold text-red-700 text-center mb-2">Delete Person</h2>
+            <p className="text-gray-600 text-center mb-2">
+              Are you sure you want to permanently delete
+            </p>
+            <p className="text-blue-900 font-bold text-center text-lg mb-4">
+              {displayName}
+            </p>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-6 text-sm text-red-700">
+              <p className="font-medium mb-1">This will also delete:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>All marriage links for this person</li>
+                <li>Their local photo (if any)</li>
+                <li>Their change history</li>
+              </ul>
+              <p className="mt-2 font-medium">⚠️ Children must be deleted separately first.</p>
+            </div>
+            {deleteError && (
+              <p className="text-red-600 text-sm bg-red-50 rounded-lg px-4 py-2 mb-4">
+                {deleteError}
+              </p>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-semibold disabled:opacity-50">
+                {deleting ? '⏳ Deleting…' : '🗑 Yes, Delete Permanently'}
+              </button>
+              <button
+                onClick={() => { setConfirmDelete(false); setDeleteError(''); }}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-xl font-medium">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )} {/* end confirm delete modal */}
 
       {/* Add Person Modal */}
       {addModal && person && (
