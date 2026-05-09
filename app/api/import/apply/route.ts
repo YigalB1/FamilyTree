@@ -65,16 +65,16 @@ export async function POST(request: Request) {
           person.deathDate       || '', person.deathPlace      || '',
           sessionId, user.id
         );
-        // Set birth last name on new person
-        if (person.birthLastNameHe || person.birthLastNameEn) {
-          await pool.query(
-            `UPDATE persons SET
-               birth_last_name_he = $1,
-               birth_last_name_en = $2
-             WHERE id = $3`,
-            [person.birthLastNameHe || '', person.birthLastNameEn || '', dbPerson.id]
-          );
-        }
+        // Set birth last name and is_deceased on new person
+        await pool.query(
+          `UPDATE persons SET
+             birth_last_name_he = $1,
+             birth_last_name_en = $2,
+             is_deceased = $3
+           WHERE id = $4`,
+          [person.birthLastNameHe || '', person.birthLastNameEn || '',
+           person.isDeceased || false, dbPerson.id]
+        );
         personIdMap[person.id] = dbPerson.id;
         personsAdded++;
 
@@ -85,18 +85,19 @@ export async function POST(request: Request) {
         const fields  = resolution.fields || {};
         const updates: Record<string, string> = {};
 
-        const fieldMap: Record<string, string> = {
-          first_name_he:     person.firstNameHe     || '',
-          last_name_he:      person.lastNameHe      || '',
-          first_name_en:     person.firstNameEn     || '',
-          last_name_en:      person.lastNameEn      || '',
+        const fieldMap: Record<string, any> = {
+          first_name_he:      person.firstNameHe     || '',
+          last_name_he:       person.lastNameHe      || '',
+          first_name_en:      person.firstNameEn     || '',
+          last_name_en:       person.lastNameEn      || '',
           birth_last_name_he: person.birthLastNameHe || '',
           birth_last_name_en: person.birthLastNameEn || '',
-          sex:               person.sex             || '',
-          birth_date:        person.birthDate       || '',
-          birth_place:       person.birthPlace      || '',
-          death_date:        person.deathDate       || '',
-          death_place:       person.deathPlace      || '',
+          sex:                person.sex             || '',
+          birth_date:         person.birthDate       || '',
+          birth_place:        person.birthPlace      || '',
+          death_date:         person.deathDate       || '',
+          death_place:        person.deathPlace      || '',
+          is_deceased:        person.isDeceased      || false,
         };
 
         for (const [field, value] of Object.entries(fieldMap)) {

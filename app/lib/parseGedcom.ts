@@ -13,6 +13,7 @@ export interface Person {
   birthPlace:      string;
   deathDate:       string;
   deathPlace:      string;
+  isDeceased:      boolean;
   photoUrl:        string;
 } // end of Person interface
 
@@ -86,7 +87,7 @@ export function parseGedcom(text: string): GedcomData {
           firstNameHe: '', lastNameHe: '',
           birthLastNameEn: '', birthLastNameHe: '',
           sex: '', birthDate: '', birthPlace: '',
-          deathDate: '', deathPlace: '', photoUrl: '',
+          deathDate: '', deathPlace: '', isDeceased: false, photoUrl: '',
         };
       } else if (parts[2] === 'FAM') {
         currentFamily = {
@@ -103,6 +104,15 @@ export function parseGedcom(text: string): GedcomData {
       inBirt = tag === 'BIRT';
       inDeat = tag === 'DEAT';
       inMarr = tag === 'MARR';
+
+      // DEAT Y means deceased with no date
+      if (currentPerson && tag === 'DEAT') {
+        currentPerson.isDeceased = true;
+        if (value === 'Y' || value === 'y') {
+          // Explicitly marked deceased
+          currentPerson.isDeceased = true;
+        }
+      } // end if DEAT
 
       if (tag === 'OBJE') {
         inObje = true; pendingFileUrl = '';
@@ -164,7 +174,10 @@ export function parseGedcom(text: string): GedcomData {
         } // end if _MARNM level 2
         if (inBirt && tag === 'DATE') currentPerson.birthDate  = value;
         if (inBirt && tag === 'PLAC') currentPerson.birthPlace = value;
-        if (inDeat && tag === 'DATE') currentPerson.deathDate  = value;
+        if (inDeat && tag === 'DATE') {
+          currentPerson.deathDate  = value;
+          currentPerson.isDeceased = true; // has death date = deceased
+        }
         if (inDeat && tag === 'PLAC') currentPerson.deathPlace = value;
         if (inObje && tag === 'FILE' && value.startsWith('http')) {
           pendingFileUrl = value;

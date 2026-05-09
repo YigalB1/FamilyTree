@@ -16,6 +16,7 @@ interface DbPerson {
   sex:               string;
   birth_date:        string;
   death_date:        string;
+  is_deceased:       boolean;
 } // end DbPerson
 
 interface DbFamily {
@@ -188,6 +189,10 @@ function PersonCard({ person, x, y, isRoot, onClick, photoUrl, lang }: {
       )}
 
       <rect x={0} y={0} width={4} height={CARD_H} fill={accent} />
+      {/* Deceased indicator — diagonal line top-left corner */}
+      {(person.is_deceased || !!person.death_date) && (
+        <polygon points="0,0 16,0 0,16" fill="#374151" opacity={0.7} />
+      )}
 
       {photoUrl ? (
         <>

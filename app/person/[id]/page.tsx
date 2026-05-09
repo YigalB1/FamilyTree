@@ -16,6 +16,7 @@ interface Person {
   death_date:    string;
   death_place:   string;
   notes:         string;
+  is_deceased:   boolean;
   updated_at:    string;
 } // end of Person interface
 
@@ -590,6 +591,7 @@ export default function PersonPage() {
                 {person.sex === 'M' ? '♂ Male' : person.sex === 'F' ? '♀ Female' : 'Unknown gender'}
                 {person.birth_date && ` · b. ${person.birth_date}`}
                 {person.death_date && ` · d. ${person.death_date}`}
+                {person.is_deceased && !person.death_date && ' · ✝ Deceased'}
               </p>
               {person.geni_id && (
                 <p className="text-xs text-gray-400 mt-1">Geni ID: {person.geni_id}</p>
@@ -646,6 +648,12 @@ export default function PersonPage() {
                     className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-2 rounded-lg text-sm font-medium">
                     📋 Pre-filled Form
                   </a>
+                  {/* View Tree from this person as root */}
+                  <Link
+                    href={`/tree?root=${person.id}`}
+                    className="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-2 rounded-lg text-sm font-medium">
+                    🌳 View Tree
+                  </Link>
                 </>
               ) : (
                 <>
@@ -709,6 +717,27 @@ export default function PersonPage() {
                 <EditField label="Birth place" fieldKey="birth_place" {...editFieldProps} />
                 <EditField label="Death date"  fieldKey="death_date"  {...editFieldProps} />
                 <EditField label="Death place" fieldKey="death_place" {...editFieldProps} />
+                {/* Deceased toggle */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Deceased
+                  </label>
+                  {editing ? (
+                    <label className="flex items-center gap-2 py-2">
+                      <input type="checkbox"
+                        checked={!!(form as any).is_deceased}
+                        onChange={e => setForm(f => ({ ...f, is_deceased: e.target.checked }))}
+                        className="w-4 h-4" />
+                      <span className="text-sm text-gray-700">Mark as deceased</span>
+                    </label>
+                  ) : (
+                    <p className="text-sm text-gray-800 py-2 border-b border-gray-100">
+                      {person.is_deceased
+                        ? <span className="text-gray-700">✝ Deceased</span>
+                        : <span className="text-gray-400 italic">Alive / Unknown</span>}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 

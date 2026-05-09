@@ -1,6 +1,7 @@
-import { getSession } from '../../../lib/auth';
-import pool from '../../../lib/db/client';
-import { logChange } from '../../../lib/db/changeLog';
+// app/api/persons/[id]/route.ts
+import { getSession }  from '../../../lib/auth';
+import pool            from '../../../lib/db/client';
+import { logChange }   from '../../../lib/db/changeLog';
 
 // GET — fetch a single person by UUID or Geni ID
 export async function GET(
@@ -13,7 +14,6 @@ export async function GET(
 
     const { id } = await params;
 
-    // Find person by UUID or Geni ID
     const personResult = await pool.query(
       'SELECT * FROM persons WHERE id::text = $1 OR geni_id = $1', [id]
     );
@@ -21,11 +21,8 @@ export async function GET(
       return Response.json({ error: 'Person not found' }, { status: 404 });
     }
     const person = personResult.rows[0];
+    const dbId   = person.id;
 
-    // Use the actual database UUID for all subsequent queries
-    const dbId = person.id;
-
-    // Get families where this person is husband or wife
     const familiesResult = await pool.query(`
       SELECT f.*,
         hp.first_name_he as husb_first_he, hp.last_name_he as husb_last_he,
@@ -38,7 +35,6 @@ export async function GET(
       WHERE f.husband_id = $1 OR f.wife_id = $1
     `, [dbId]);
 
-    // Get parent family (where this person is a child)
     const parentFamilyResult = await pool.query(`
       SELECT f.*,
         hp.first_name_he as husb_first_he, hp.last_name_he as husb_last_he,
@@ -52,7 +48,6 @@ export async function GET(
       WHERE fc.child_id = $1
     `, [dbId]);
 
-    // Get children
     const childrenResult = await pool.query(`
       SELECT p.id, p.first_name_he, p.last_name_he,
              p.first_name_en, p.last_name_en, p.birth_date, p.sex
@@ -63,7 +58,6 @@ export async function GET(
       ORDER BY p.birth_date
     `, [dbId]);
 
-    // Get change log
     const changeLogResult = await pool.query(`
       SELECT cl.*, u.name as changed_by_name
       FROM change_log cl
@@ -84,7 +78,7 @@ export async function GET(
     console.error('GET person error:', err);
     return Response.json({ error: 'Failed to fetch person' }, { status: 500 });
   }
-}
+} // end of GET
 
 // PATCH — update a person
 export async function PATCH(
@@ -93,13 +87,12 @@ export async function PATCH(
 ) {
   try {
     const user = await getSession();
-    if (!user) return Response.json({ error: 'Not authenticated' }, { status: 401 });
+    if (!user)              return Response.json({ error: 'Not authenticated' },  { status: 401 });
     if (user.role === 'viewer') return Response.json({ error: 'Permission denied' }, { status: 403 });
 
     const { id }  = await params;
     const updates = await request.json();
 
-    // Find by UUID or Geni ID
     const current = await pool.query(
       'SELECT * FROM persons WHERE id::text = $1 OR geni_id = $1', [id]
     );
@@ -109,12 +102,16 @@ export async function PATCH(
     const old  = current.rows[0];
     const dbId = old.id;
 
-    // Fields that can be updated
+    // All fields that can be updated via profile edit
     const allowedFields = [
-      'first_name_he', 'last_name_he',
-      'first_name_en', 'last_name_en',
-      'sex', 'birth_date', 'birth_place',
-      'death_date', 'death_place', 'notes',
+      'first_name_he',     'last_name_he',
+      'first_name_en',     'last_name_en',
+      'birth_last_name_he', 'birth_last_name_en',
+      'sex',
+      'birth_date',        'birth_place',
+      'death_date',        'death_place',
+      'is_deceased',
+      'notes',
     ];
 
     const setClauses: string[] = [];
@@ -127,7 +124,7 @@ export async function PATCH(
         values.push(updates[field]);
         paramIdx++;
       }
-    }
+    } // end for allowedFields
 
     if (setClauses.length === 0) {
       return Response.json({ error: 'No valid fields to update' }, { status: 400 });
@@ -143,19 +140,19 @@ export async function PATCH(
 
     // Write change log for each changed field
     for (const field of allowedFields) {
-      if (field in updates && updates[field] !== old[field]) {
+      if (field in updates && String(updates[field]) !== String(old[field])) {
         await logChange(
           'persons', dbId, field,
-          old[field] || null,
-          updates[field] || null,
+          old[field]     ?? null,
+          updates[field] ?? null,
           user.id, 'manual'
         );
       }
-    }
+    } // end for change log
 
     return Response.json({ person: result.rows[0] });
   } catch (err) {
     console.error('PATCH person error:', err);
     return Response.json({ error: 'Failed to update person' }, { status: 500 });
   }
-}
+} // end of PATCH
