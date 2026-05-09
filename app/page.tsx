@@ -294,6 +294,15 @@ export default function Home() {
                 {importing ? '⏳ Importing…' : '📥 Import GEDCOM'}
               </button>
             </div>
+
+            {/* Import & Compare — ADD THIS */}
+            <Link href="/import-review"
+              className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
+              🔍 Import & Compare
+            </Link>
+
+
+
             {currentUser.role !== 'viewer' && (
               <button onClick={() => setShowExportModal(true)}
                 className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">

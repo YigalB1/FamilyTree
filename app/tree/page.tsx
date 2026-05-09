@@ -6,14 +6,16 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 interface DbPerson {
-  id:            string;
-  first_name_he: string;
-  last_name_he:  string;
-  first_name_en: string;
-  last_name_en:  string;
-  sex:           string;
-  birth_date:    string;
-  death_date:    string;
+  id:                string;
+  first_name_he:     string;
+  last_name_he:      string;
+  first_name_en:     string;
+  last_name_en:      string;
+  birth_last_name_he: string;
+  birth_last_name_en: string;
+  sex:               string;
+  birth_date:        string;
+  death_date:        string;
 } // end DbPerson
 
 interface DbFamily {
@@ -144,8 +146,10 @@ function PersonCard({ person, x, y, isRoot, onClick, photoUrl, lang }: {
   photoUrl?: string;
   lang:     Lang;
 }) {
-  const he    = `${person.first_name_he || ''} ${person.last_name_he || ''}`.trim();
-  const en    = `${person.first_name_en || ''} ${person.last_name_en || ''}`.trim();
+  const lastHe = person.last_name_he || person.birth_last_name_he || '';
+  const lastEn = person.last_name_en || person.birth_last_name_en || '';
+  const he    = `${person.first_name_he || ''} ${lastHe}`.trim();
+  const en    = `${person.first_name_en || ''} ${lastEn}`.trim();
   const line1 = lang === 'he' ? (he || en || '—')
               : lang === 'en' ? (en || he || '—')
               : (he || en || '—');
@@ -385,9 +389,11 @@ export default function TreePage() {
           className="ml-2 bg-blue-800 text-white text-sm rounded-lg px-3 py-1.5
             border border-blue-600 focus:outline-none flex-1 max-w-xs">
           {persons.map(p => {
-            const name = lang === 'en'
-            ? `${p.first_name_en || p.first_name_he || ''} ${p.last_name_en || p.last_name_he || ''}`.trim()
-            : `${p.first_name_he || p.first_name_en || ''} ${p.last_name_he || p.last_name_en || ''}`.trim();
+            const lastHe = p.last_name_he || p.birth_last_name_he || '';
+          const lastEn = p.last_name_en || p.birth_last_name_en || '';
+          const name = lang === 'en'
+            ? `${p.first_name_en || p.first_name_he || ''} ${lastEn || lastHe}`.trim()
+            : `${p.first_name_he || p.first_name_en || ''} ${lastHe || lastEn}`.trim();
             const year = p.birth_date?.split(' ').pop() || '';
             return <option key={p.id} value={p.id}>{name}{year ? ` (${year})` : ''}</option>;
           })}

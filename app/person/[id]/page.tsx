@@ -17,6 +17,8 @@ interface Person {
   death_place:   string;
   notes:         string;
   updated_at:    string;
+  birth_last_name_he: string;
+  birth_last_name_en: string;
 } // end of Person interface
 
 interface FamilyMember {
@@ -654,6 +656,8 @@ export default function PersonPage() {
                 <EditField label="Last name (Hebrew)"   fieldKey="last_name_he"  {...editFieldProps} />
                 <EditField label="First name (English)" fieldKey="first_name_en" {...editFieldProps} />
                 <EditField label="Last name (English)"  fieldKey="last_name_en"  {...editFieldProps} />
+                <EditField label="Birth last name (Hebrew)"  fieldKey="birth_last_name_he" {...editFieldProps} />
+                <EditField label="Birth last name (English)" fieldKey="birth_last_name_en" {...editFieldProps} />
                 {editing && (
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sex</label>
