@@ -8,7 +8,9 @@ Font.register({
   family: 'NotoHebrew',
   fonts: [
     { src: 'http://localhost:3000/fonts/NotoSansHebrew-Regular.ttf', fontWeight: 'normal' },
+    { src: 'http://localhost:3000/fonts/NotoSansHebrew-Regular.ttf', fontWeight: 'normal', fontStyle: 'italic' },
     { src: 'http://localhost:3000/fonts/NotoSansHebrew-Bold.ttf',    fontWeight: 'bold'   },
+    { src: 'http://localhost:3000/fonts/NotoSansHebrew-Bold.ttf',    fontWeight: 'bold',  fontStyle: 'italic' },
   ],
 });
 

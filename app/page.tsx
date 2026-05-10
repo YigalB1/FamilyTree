@@ -1,3 +1,4 @@
+// app/page.tsx
 'use client';
 import { useCallback, useState, useMemo, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
@@ -8,6 +9,7 @@ import { buildDescendantTree, TreeNode } from './lib/buildTree';
 import { pdf } from '@react-pdf/renderer';
 import { TreePdf, PageFormat, Lang } from './lib/TreePdf';
 import { TiledTreePdf, TileFormat } from './lib/TiledTreePdf';
+import { FamilyBook, BookMode, BookOrientation } from './lib/FamilyBook';
 import { TreeSettings, defaultSettings } from './lib/treeSettings';
 import { generateAllReports } from './lib/reports/generateReports';
 
@@ -90,6 +92,9 @@ export default function Home() {
   const [tree, setTree]                   = useState<TreeNode | null>(null);
   const [pageFormat, setPageFormat]       = useState<PageFormat>('A4L');
   const [tileFormat, setTileFormat]       = useState<TileFormat>('A4');
+  const [bookMode,   setBookMode]         = useState<BookMode>('B');
+  const [bookOrient, setBookOrient]       = useState<BookOrientation>('portrait');
+  const [generatingBook, setGeneratingBook] = useState(false);
   const [lang, setLang] = useState<Lang>(() => {
     if (typeof window !== 'undefined') {
       return (localStorage.getItem('preferred_lang') as Lang) || 'he';
@@ -263,6 +268,48 @@ export default function Home() {
     }
   } // end of downloadTiledPdf
 
+  async function downloadBook() {
+    if (!rootPerson || !data) return;
+    setGeneratingBook(true);
+    try {
+      // Load photos for all persons
+      const photoUrls: Record<string, string> = {};
+      await Promise.all(
+        data.persons.map(async p => {
+          try {
+            const res = await fetch(`/api/photos/${p.id}`);
+            const d   = await res.json();
+            if (d.exists && d.url) {
+              // react-pdf needs absolute URLs
+              photoUrls[p.id] = d.url.startsWith('http')
+                ? d.url
+                : `http://localhost:3000${d.url}`;
+            }
+          } catch {}
+        })
+      );
+
+      const blob = await pdf(
+        <FamilyBook
+          rootPersonId={rootPerson.id}
+          mode={bookMode}
+          orientation={bookOrient}
+          lang={lang}
+          data={data}
+          photoUrls={photoUrls}
+        />
+      ).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href = url;
+      a.download = `family-book-${rootPerson.lastName || rootPerson.lastNameHe}-${bookMode}-${bookOrient}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setGeneratingBook(false);
+    }
+  } // end of downloadBook
+
   function setSetting<K extends keyof TreeSettings>(key: K, value: TreeSettings[K]) {
     setSettings(s => ({ ...s, [key]: value }));
   } // end of setSetting
@@ -294,15 +341,10 @@ export default function Home() {
                 {importing ? '⏳ Importing…' : '📥 Import GEDCOM'}
               </button>
             </div>
-
-            {/* Import & Compare — ADD THIS */}
             <Link href="/import-review"
               className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
               🔍 Import & Compare
             </Link>
-
-
-
             {currentUser.role !== 'viewer' && (
               <button onClick={() => setShowExportModal(true)}
                 className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-lg text-xs font-medium">
@@ -518,6 +560,33 @@ export default function Home() {
                     <button onClick={downloadTiledPdf} disabled={generatingTiled}
                       className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-5 py-2 rounded-xl text-sm disabled:opacity-50 whitespace-nowrap">
                       {generatingTiled ? '⏳ Generating…' : '🖨️ Download Tiled PDF'}
+                    </button>
+                  </div>
+
+                  {/* Family Book */}
+                  <div className="flex items-center gap-3 flex-wrap bg-purple-50 rounded-xl px-4 py-3 border border-purple-200">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-purple-800">📖 Family Book</p>
+                      <p className="text-xs text-purple-600">
+                        Generate a printable book with profiles and family tree.
+                      </p>
+                    </div>
+                    {/* Mode selector */}
+                    <select value={bookMode} onChange={e => setBookMode(e.target.value as BookMode)}
+                      className="border border-purple-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400">
+                      <option value="A">One page / person</option>
+                      <option value="B">One page / family</option>
+                      <option value="C">Compact</option>
+                    </select>
+                    {/* Orientation selector */}
+                    <select value={bookOrient} onChange={e => setBookOrient(e.target.value as BookOrientation)}
+                      className="border border-purple-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400">
+                      <option value="portrait">Portrait</option>
+                      <option value="landscape">Landscape</option>
+                    </select>
+                    <button onClick={downloadBook} disabled={generatingBook}
+                      className="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-5 py-2 rounded-xl text-sm disabled:opacity-50 whitespace-nowrap">
+                      {generatingBook ? '⏳ Generating…' : '📖 Download Book'}
                     </button>
                   </div>
 
