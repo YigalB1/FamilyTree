@@ -18,7 +18,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id }  = await params;
+  
+  const raw = (await params).id;
+  const id  = raw.replace(/^\[/, '').replace(/\]$/, '');
   const type    = request.nextUrl.searchParams.get('type') || 'prefilled';
   const isBlank = type === 'blank';
 

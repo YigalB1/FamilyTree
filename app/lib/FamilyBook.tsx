@@ -3,6 +3,7 @@ import React from 'react';
 import { Document, Page, Text, View, Font, Image } from '@react-pdf/renderer';
 import { GedcomData, Person, Family } from './parseGedcom';
 import { Lang } from './TreePdf';
+import { RosterPages, RosterEntry } from './RosterPages';
 
 Font.register({
   family: 'NotoHebrew',
@@ -34,12 +35,15 @@ const A4L: [number, number] = [841.89, 595.28];
 const MARGIN = 24;
 
 interface BookOptions {
-  rootPersonId: string;
-  mode:         BookMode;
-  orientation:  BookOrientation;
-  lang:         Lang;
-  data:         GedcomData;
-  photoUrls:    Record<string, string>;
+  rootPersonId:    string;
+  mode:            BookMode;
+  orientation:     BookOrientation;
+  lang:            Lang;
+  data:            GedcomData;
+  photoUrls:       Record<string, string>;
+  rosterEntries?:  RosterEntry[];
+  rosterRootName?: string;
+  rosterToday?:    string;
 } // end BookOptions
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -100,7 +104,7 @@ function PersonCard({ p, lang, photoUrl, cardW, compact }: {
   const dead   = isDeceased(p);
   const accent = accentColor(p);
   const bg     = bgColor(p);
-  const PH     = compact ? 48 : 60; // photo height
+  const PH     = compact ? 48 : 60;
 
   return (
     <View style={{
@@ -114,29 +118,25 @@ function PersonCard({ p, lang, photoUrl, cardW, compact }: {
       overflow: 'hidden',
       marginBottom: 4,
     }}>
-      {/* Photo */}
       {photoUrl ? (
         <Image src={photoUrl} style={{ width: PH, height: PH, objectFit: 'cover' }} />
       ) : (
         <View style={{ width: PH, height: PH, backgroundColor: LINE,
           justifyContent: 'center', alignItems: 'center' }}>
           <Text style={{ fontSize: 18, color: GRAY }}>
-            {p.sex === 'M' ? '♂' : p.sex === 'F' ? '♀' : '?'}
+            {p.sex === 'M' ? '\u2642' : p.sex === 'F' ? '\u2640' : '?'}
           </Text>
         </View>
       )}
-      {/* Data */}
       <View style={{ flex: 1, padding: 6, justifyContent: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-          {dead && <Text style={{ fontSize: 8, color: GRAY, fontFamily: FONT }}>✝</Text>}
+          {dead && <Text style={{ fontSize: 8, color: GRAY, fontFamily: FONT }}>\u2020</Text>}
           <Text style={{ fontSize: compact ? 9 : 10, fontWeight: 'bold',
-            color: BLUE, fontFamily: FONT }}>
-            {name}
-          </Text>
+            color: BLUE, fontFamily: FONT }}>{name}</Text>
         </View>
         {bsur ? (
           <Text style={{ fontSize: 7, color: GRAY, fontFamily: FONT }}>
-            {lang === 'he' ? `נ. ${bsur}` : `b. ${bsur}`}
+            {lang === 'he' ? `\u05e0. ${bsur}` : `b. ${bsur}`}
           </Text>
         ) : null}
         {p.birthDate ? (
@@ -150,7 +150,7 @@ function PersonCard({ p, lang, photoUrl, cardW, compact }: {
           </Text>
         ) : dead && !p.deathDate ? (
           <Text style={{ fontSize: 8, color: GRAY, fontFamily: FONT }}>
-            {lang === 'he' ? 'נפטר/ה' : 'Deceased'}
+            {lang === 'he' ? '\u05e0\u05e4\u05d8\u05e8/\u05d4' : 'Deceased'}
           </Text>
         ) : null}
       </View>
@@ -176,14 +176,14 @@ function CoupleRow({ p1, p2, fam, lang, photoUrls, availW, compact }: {
       </View>
       {fam && fam.marriageDate && (
         <Text style={{ fontSize: 7, color: GRAY, fontFamily: FONT, marginBottom: 4, marginLeft: 4 }}>
-          {`⚭ ${fam.marriageDate}${fam.marriagePlace ? `  ·  ${fam.marriagePlace}` : ''}${fam.divorced ? (lang === 'he' ? '  (גרוש/ה)' : '  (div.)') : ''}`}
+          {`\u26ad ${fam.marriageDate}${fam.marriagePlace ? `  \u00b7  ${fam.marriagePlace}` : ''}${fam.divorced ? (lang === 'he' ? '  (\u05d2\u05e8\u05d5\u05e9/\u05d4)' : '  (div.)') : ''}`}
         </Text>
       )}
     </View>
   );
 } // end CoupleRow
 
-// ── Children Row (side by side) ───────────────────────────────────
+// ── Children Row ──────────────────────────────────────────────────
 
 function ChildrenRow({ children, lang, photoUrls, availW, compact }: {
   children: Person[]; lang: Lang; photoUrls: Record<string, string>;
@@ -191,8 +191,7 @@ function ChildrenRow({ children, lang, photoUrls, availW, compact }: {
 }) {
   const validChildren = children.filter(c => c && c.id);
   if (validChildren.length === 0) return null;
-  // Show up to 2 per row
-  const perRow = validChildren.length <= 2 ? validChildren.length : 2;
+  const perRow = validChildren.length <= 3 ? validChildren.length : 3;
   const cardW  = (availW - (perRow - 1) * 8) / perRow;
   const rows   = [];
   for (let i = 0; i < validChildren.length; i += perRow) {
@@ -209,14 +208,110 @@ function ChildrenRow({ children, lang, photoUrls, availW, compact }: {
   return <View>{rows}</View>;
 } // end ChildrenRow
 
-// ── Family Unit ───────────────────────────────────────────────────
+// ── Multi-Marriage Block ──────────────────────────────────────────
 
-interface FamilyUnit {
-  person:   Person;
+function MultiMarriageBlock({ person, marriages, lang, photoUrls, availW, compact }: {
+  person:    Person;
+  marriages: { spouse: Person | null; fam: Family | null; children: Person[] }[];
+  lang:      Lang;
+  photoUrls: Record<string, string>;
+  availW:    number;
+  compact?:  boolean;
+}) {
+  const single = marriages.length <= 1;
+  const m0     = marriages[0] || { spouse: null, fam: null, children: [] };
+
+  if (single) {
+    const cardW = m0.spouse ? (availW - 10) / 2 : availW;
+    return (
+      <View>
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 2 }}>
+          <PersonCard p={person} lang={lang} photoUrl={photoUrls[person.id]}
+            cardW={cardW} compact={compact} />
+          {m0.spouse && (
+            <PersonCard p={m0.spouse} lang={lang} photoUrl={photoUrls[m0.spouse.id]}
+              cardW={cardW} compact={compact} />
+          )}
+        </View>
+        {m0.fam && m0.fam.marriageDate && (
+          <Text style={{ fontSize: 7, color: GRAY, fontFamily: FONT, marginBottom: 4, marginLeft: 4 }}>
+            {`\u26ad ${m0.fam.marriageDate}${m0.fam.marriagePlace ? ` \u00b7 ${m0.fam.marriagePlace}` : ''}${m0.fam.divorced ? (lang === 'he' ? ' (\u05d2\u05e8\u05d5\u05e9/\u05d4)' : ' (div.)') : ''}`}
+          </Text>
+        )}
+        {m0.children.length > 0 && (
+          <View style={{ marginTop: 2 }}>
+            <ChildrenRow children={m0.children} lang={lang} photoUrls={photoUrls}
+              availW={availW} compact={compact} />
+          </View>
+        )}
+      </View>
+    );
+  } // end single
+
+  const cols    = marriages.length + 1;
+  const personW = Math.floor(availW * 0.22);
+  const spouseW = Math.floor((availW - personW - (cols - 1) * 8) / marriages.length);
+
+  return (
+    <View>
+      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
+        <View style={{ width: spouseW }}>
+          {marriages[0]?.spouse && (
+            <PersonCard p={marriages[0].spouse} lang={lang}
+              photoUrl={photoUrls[marriages[0].spouse.id]}
+              cardW={spouseW} compact={compact} />
+          )}
+          {marriages[0]?.fam?.marriageDate && (
+            <Text style={{ fontSize: 7, color: GRAY, fontFamily: FONT, marginBottom: 2 }}>
+              {`\u26ad ${marriages[0].fam.marriageDate}${marriages[0].fam.divorced ? (lang === 'he' ? ' (\u05d2\u05e8\u05d5\u05e9/\u05d4)' : ' (div.)') : ''}`}
+            </Text>
+          )}
+        </View>
+        <View style={{ width: personW, alignItems: 'center' }}>
+          <PersonCard p={person} lang={lang} photoUrl={photoUrls[person.id]}
+            cardW={personW} compact={compact} />
+        </View>
+        {marriages.length > 1 && (
+          <View style={{ width: spouseW }}>
+            {marriages[1]?.spouse && (
+              <PersonCard p={marriages[1].spouse} lang={lang}
+                photoUrl={photoUrls[marriages[1].spouse.id]}
+                cardW={spouseW} compact={compact} />
+            )}
+            {marriages[1]?.fam?.marriageDate && (
+              <Text style={{ fontSize: 7, color: GRAY, fontFamily: FONT, marginBottom: 2 }}>
+                {`\u26ad ${marriages[1].fam.marriageDate}${marriages[1].fam.divorced ? (lang === 'he' ? ' (\u05d2\u05e8\u05d5\u05e9/\u05d4)' : ' (div.)') : ''}`}
+              </Text>
+            )}
+          </View>
+        )}
+      </View>
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+        {marriages.map((m, i) => (
+          <View key={i} style={{ width: spouseW }}>
+            {m.children.length > 0 && (
+              <ChildrenRow children={m.children} lang={lang} photoUrls={photoUrls}
+                availW={spouseW} compact={compact} />
+            )}
+          </View>
+        ))}
+        <View style={{ width: personW }} />
+        {marriages.length === 1 && <View style={{ width: spouseW }} />}
+      </View>
+    </View>
+  );
+} // end MultiMarriageBlock
+
+interface Marriage {
   spouse:   Person | null;
   fam:      Family | null;
   children: Person[];
-  gen:      number;
+} // end Marriage
+
+interface FamilyUnit {
+  person:    Person;
+  marriages: Marriage[];
+  gen:       number;
 } // end FamilyUnit
 
 function buildUnits(rootId: string, data: GedcomData): FamilyUnit[] {
@@ -229,11 +324,20 @@ function buildUnits(rootId: string, data: GedcomData): FamilyUnit[] {
     done.add(id);
     const p = pMap.get(id);
     if (!p || !p.id) return;
-    const { spouse, fam } = getSpouseAndFamily(p, data.families, pMap);
-    if (spouse && spouse.id) done.add(spouse.id);
-    const children = getChildren(p, data.families, pMap).filter(c => c && c.id);
-    units.push({ person: p, spouse, fam, children, gen });
-    for (const c of children) {
+    const allFams = getFamiliesAsParent(p, data.families);
+    const marriages: Marriage[] = allFams.map(fam => {
+      const sid = fam.husbandId === p.id ? fam.wifeId : fam.husbandId;
+      const spouse = sid ? (pMap.get(sid) || null) : null;
+      if (spouse && spouse.id) done.add(spouse.id);
+      const children = (fam.childrenIds || [])
+        .map(cid => pMap.get(cid))
+        .filter((c): c is Person => !!c && !!c.id);
+      return { spouse, fam, children };
+    });
+    if (marriages.length === 0) marriages.push({ spouse: null, fam: null, children: [] });
+    const allChildren = marriages.flatMap(m => m.children);
+    units.push({ person: p, marriages, gen });
+    for (const c of allChildren) {
       if (c && c.id) visit(c.id, gen + 1);
     }
   } // end visit
@@ -242,10 +346,10 @@ function buildUnits(rootId: string, data: GedcomData): FamilyUnit[] {
   return units;
 } // end buildUnits
 
-// ── Page with generation header ───────────────────────────────────
+// ── Generation Header ─────────────────────────────────────────────
 
 function GenHeader({ gen, lang }: { gen: number; lang: Lang }) {
-  const label = lang === 'he' ? `דור ${gen}` : `Generation ${gen}`;
+  const label = lang === 'he' ? `\u05d3\u05d5\u05e8 ${gen}` : `Generation ${gen}`;
   return (
     <View style={{
       backgroundColor: BLUE, borderRadius: 4,
@@ -266,12 +370,11 @@ function CoverPage({ roots, lang, pageSize, today, photoUrls }: {
   lang: Lang; pageSize: [number, number]; today: string;
   photoUrls: Record<string, string>;
 }) {
-  const andWord = lang === 'he' ? ' ו' : ' & ';
+  const andWord = lang === 'he' ? ' \u05d5' : ' & ';
   const names = roots.map(r =>
     r.spouse ? `${dname(r.p, lang)}${andWord}${dname(r.spouse, lang)}` : dname(r.p, lang)
   ).join(', ');
 
-  // Collect all people on cover (root + spouse)
   const coverPeople: Person[] = [];
   for (const r of roots) {
     coverPeople.push(r.p);
@@ -281,27 +384,19 @@ function CoverPage({ roots, lang, pageSize, today, photoUrls }: {
 
   return (
     <Page size={pageSize} style={{ fontFamily: FONT, backgroundColor: BLUE }} wrap={false}>
-      {/* Date — top left */}
       <View style={{ position: 'absolute', top: 20, left: 24 }}>
         <Text style={{ fontSize: 8, color: '#93c5fd', fontFamily: FONT }}>{today}</Text>
       </View>
-
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }}>
         <View style={{ width: '100%', height: 3, backgroundColor: '#93c5fd', marginBottom: 32 }} />
-
-        {/* Title */}
         <Text style={{ fontSize: 16, color: '#bfdbfe', fontFamily: FONT,
           textAlign: 'center', marginBottom: 8 }}>
-          {lang === 'he' ? 'ספר המשפחה של' : 'Family Book of'}
+          {lang === 'he' ? '\u05e1\u05e4\u05e8 \u05d4\u05de\u05e9\u05e4\u05d7\u05d4 \u05e9\u05dc' : 'Family Book of'}
         </Text>
-
-        {/* Names */}
         <Text style={{ fontSize: 26, fontWeight: 'bold', color: WHITE, fontFamily: FONT,
           textAlign: 'center', marginBottom: 28 }}>
           {names}
         </Text>
-
-        {/* Photos below names — side by side */}
         {coverPeople.length > 0 && (
           <View style={{ flexDirection: 'row', gap: 20, justifyContent: 'center', marginBottom: 32 }}>
             {coverPeople.map(p => {
@@ -321,7 +416,7 @@ function CoverPage({ roots, lang, pageSize, today, photoUrls }: {
                       justifyContent: 'center', alignItems: 'center',
                       borderWidth: 2, borderColor: '#93c5fd', borderStyle: 'solid' }}>
                       <Text style={{ fontSize: 32, color: WHITE }}>
-                        {p.sex === 'M' ? '♂' : '♀'}
+                        {p.sex === 'M' ? '\u2642' : '\u2640'}
                       </Text>
                     </View>
                   )}
@@ -333,7 +428,6 @@ function CoverPage({ roots, lang, pageSize, today, photoUrls }: {
             })}
           </View>
         )}
-
         <View style={{ width: '100%', height: 3, backgroundColor: '#93c5fd' }} />
       </View>
     </Page>
@@ -342,7 +436,10 @@ function CoverPage({ roots, lang, pageSize, today, photoUrls }: {
 
 // ── Main export ───────────────────────────────────────────────────
 
-export function FamilyBook({ rootPersonId, mode, orientation, lang, data, photoUrls = {} }: BookOptions) {
+export function FamilyBook({
+  rootPersonId, mode, orientation, lang, data, photoUrls = {},
+  rosterEntries, rosterRootName, rosterToday,
+}: BookOptions) {
   const pageSize: [number, number] = orientation === 'portrait' ? A4P : A4L;
   const [PW, PH]  = pageSize;
   const availW    = PW - MARGIN * 2;
@@ -354,18 +451,12 @@ export function FamilyBook({ rootPersonId, mode, orientation, lang, data, photoU
   const units  = buildUnits(rootPersonId, data);
   const { spouse: rootSpouse } = getSpouseAndFamily(rootPerson, data.families, pMap);
 
-  // Group units by generation
   const genMap = new Map<number, FamilyUnit[]>();
   for (const u of units) {
     if (!genMap.has(u.gen)) genMap.set(u.gen, []);
     genMap.get(u.gen)!.push(u);
   }
   const gens = Array.from(genMap.keys()).sort((a, b) => a - b);
-
-  // ── Build pages ──────────────────────────────────────────────
-  // Mode B: pack multiple family units per page where possible
-  // Each unit = parents row + children row
-  // We use wrap={true} and let react-pdf flow content
 
   const pageStyle = {
     fontFamily: FONT,
@@ -384,7 +475,6 @@ export function FamilyBook({ rootPersonId, mode, orientation, lang, data, photoU
     familyPages.push(
       <Page key={`page-${pageIdx}`} size={pageSize} style={pageStyle} wrap={false}>
         <View>{pageContent}</View>
-        {/* Footer */}
         <View style={{ position: 'absolute', bottom: 12, left: MARGIN, right: MARGIN,
           flexDirection: 'row', justifyContent: 'space-between' }}>
           <Text style={{ fontSize: 7, color: LINE, fontFamily: FONT }}>
@@ -400,17 +490,16 @@ export function FamilyBook({ rootPersonId, mode, orientation, lang, data, photoU
     pageIdx++;
   } // end flushPage
 
-  // Estimate height of a family unit
   function unitHeight(u: FamilyUnit, compact: boolean): number {
-    const cardH  = compact ? 52 : 64;
-    const coupleH = cardH + 12; // couple row + marriage date
-    const childH  = Math.ceil(u.children.length / 2) * (cardH + 4);
-    const headerH = 24;
-    return coupleH + childH + headerH + 16;
+    const cardH   = compact ? 52 : 64;
+    const coupleH = cardH + 12;
+    const allKids = u.marriages.flatMap(m => m.children);
+    const childH  = Math.ceil(allKids.length / 3) * (cardH + 4);
+    return coupleH + childH + 24 + 16;
   } // end unitHeight
 
   let usedH = 0;
-  const maxH = PH - MARGIN * 2 - 30; // available height per page
+  const maxH = PH - MARGIN * 2 - 30;
 
   for (const gen of gens) {
     const genUnits = genMap.get(gen)!;
@@ -419,10 +508,8 @@ export function FamilyBook({ rootPersonId, mode, orientation, lang, data, photoU
       const compact = mode === 'C';
       const uH = unitHeight(u, compact);
 
-      // Add gen header if generation changed
       if (gen !== currentGen) {
-        // Check if gen header fits
-        if (usedH + 30 > maxH && pageContent.length > 0) {
+        if (pageContent.length > 0) {
           flushPage();
           usedH = 0;
         }
@@ -431,51 +518,34 @@ export function FamilyBook({ rootPersonId, mode, orientation, lang, data, photoU
         currentGen = gen;
       }
 
-      // Check if unit fits on current page
       if (usedH + uH > maxH && pageContent.length > 0) {
         flushPage();
         usedH = 0;
-        // Re-add gen header on new page
         pageContent.push(<GenHeader key={`gen-${gen}-new-${u.person.id}`} gen={gen} lang={lang} />);
         usedH += 30;
       }
 
-      // Add separator between units on same page
-      if (pageContent.length > 0) {
+      const lastIsHeader = pageContent.length > 0 &&
+        pageContent[pageContent.length - 1]?.key?.toString().startsWith('gen-');
+      if (pageContent.length > 0 && !lastIsHeader) {
         pageContent.push(
           <View key={`sep-${u.person.id}`} style={{
-            height: 1, backgroundColor: LINE, marginVertical: 8,
+            height: 3, backgroundColor: '#f97316', marginVertical: 10, borderRadius: 2,
           }} />
         );
         usedH += 17;
       }
 
-      // Couple row
       pageContent.push(
-        <CoupleRow key={`couple-${u.person.id}`}
-          p1={u.person} p2={u.spouse} fam={u.fam}
-          lang={lang} photoUrls={photoUrls}
-          availW={availW} compact={compact}
+        <MultiMarriageBlock key={`marriages-${u.person.id}`}
+          person={u.person}
+          marriages={u.marriages}
+          lang={lang}
+          photoUrls={photoUrls}
+          availW={availW}
+          compact={compact}
         />
       );
-
-      // Children row
-      if (u.children.length > 0) {
-        pageContent.push(
-          <View key={`ch-label-${u.person.id}`} style={{ marginTop: 4, marginBottom: 4 }}>
-            <Text style={{ fontSize: 8, color: GRAY, fontFamily: FONT, fontWeight: 'bold' }}>
-              {lang === 'he' ? 'ילדים:' : 'Children:'}
-            </Text>
-          </View>
-        );
-        pageContent.push(
-          <ChildrenRow key={`children-${u.person.id}`}
-            children={u.children} lang={lang} photoUrls={photoUrls}
-            availW={availW} compact={compact}
-          />
-        );
-      }
-
       usedH += uH;
     }
   }
@@ -490,6 +560,13 @@ export function FamilyBook({ rootPersonId, mode, orientation, lang, data, photoU
         photoUrls={photoUrls}
       />
       {familyPages}
+      {rosterEntries && rosterEntries.length > 0 && (
+        <RosterPages
+          entries={rosterEntries}
+          rootName={rosterRootName || dname(rootPerson, lang)}
+          today={rosterToday || today}
+        />
+      )}
     </Document>
   );
 } // end FamilyBook

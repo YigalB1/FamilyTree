@@ -13,6 +13,8 @@ import { FamilyBook, BookMode, BookOrientation } from './lib/FamilyBook';
 import { TreeSettings, defaultSettings } from './lib/treeSettings';
 import { generateAllReports } from './lib/reports/generateReports';
 
+
+
 interface AuthUser {
   id:    string;
   email: string;
@@ -241,16 +243,42 @@ export default function Home() {
     }
   } // end of selectPerson
 
-  async function downloadPdf() {
-    if (!tree || !rootPerson) return;
-    const blob = await pdf(
-      <TreePdf root={tree} format={pageFormat} lang={lang} settings={settings} />
-    ).toBlob();
-    const url = URL.createObjectURL(blob);
-    const a   = document.createElement('a');
-    a.href = url; a.download = `family-tree-${rootPerson.lastName}-${pageFormat}.pdf`;
-    a.click(); URL.revokeObjectURL(url);
-  } // end of downloadPdf
+
+
+
+ async function downloadPdf() {
+  if (!tree || !rootPerson) return;
+
+
+  // debug 17May26
+  console.log('Fetching roster for ID:', rootPerson.id); // ← add this
+
+
+
+  const res = await fetch(`/api/persons/${rootPerson.id}/roster-data`);
+  const { entries, rootName } = await res.json() as {
+    entries: { number: number; firstNameHe: string; lastNameHe: string;
+               firstNameEn: string; lastNameEn: string; birthDate: string;
+               deathDate: string; fatherHe: string; fatherEn: string;
+               motherHe: string; motherEn: string; }[];
+    rootName: string;
+  };
+  const today = new Date().toLocaleDateString();
+
+  const blob = await pdf(
+    <TreePdf root={tree} format={pageFormat} lang={lang} settings={settings}
+      rosterEntries={entries} rosterRootName={rootName} rosterToday={today} />
+  ).toBlob();
+
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href     = url;
+  a.download = `family-tree-${rootPerson.lastName}-${pageFormat}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
+} // end of downloadPdf
+
+
 
   async function downloadTiledPdf() {
     if (!tree || !rootPerson) return;
@@ -268,47 +296,56 @@ export default function Home() {
     }
   } // end of downloadTiledPdf
 
+ 
   async function downloadBook() {
-    if (!rootPerson || !data) return;
-    setGeneratingBook(true);
-    try {
-      // Load photos for all persons
-      const photoUrls: Record<string, string> = {};
-      await Promise.all(
-        data.persons.map(async p => {
-          try {
-            const res = await fetch(`/api/photos/${p.id}`);
-            const d   = await res.json();
-            if (d.exists && d.url) {
-              // react-pdf needs absolute URLs
-              photoUrls[p.id] = d.url.startsWith('http')
-                ? d.url
-                : `http://localhost:3000${d.url}`;
-            }
-          } catch {}
-        })
-      );
+  if (!rootPerson || !data) return;
+  setGeneratingBook(true);
+  try {
+    // Load photos
+    const photoUrls: Record<string, string> = {};
+    await Promise.all(
+      data.persons.map(async p => {
+        try {
+          const res = await fetch(`/api/photos/${p.id}`);
+          const d   = await res.json();
+          if (d.exists && d.url) {
+            photoUrls[p.id] = d.url.startsWith('http')
+              ? d.url
+              : `http://localhost:3000${d.url}`;
+          }
+        } catch {}
+      })
+    );
 
-      const blob = await pdf(
-        <FamilyBook
-          rootPersonId={rootPerson.id}
-          mode={bookMode}
-          orientation={bookOrient}
-          lang={lang}
-          data={data}
-          photoUrls={photoUrls}
-        />
-      ).toBlob();
-      const url = URL.createObjectURL(blob);
-      const a   = document.createElement('a');
-      a.href = url;
-      a.download = `family-book-${rootPerson.lastName || rootPerson.lastNameHe}-${bookMode}-${bookOrient}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } finally {
-      setGeneratingBook(false);
-    }
-  } // end of downloadBook
+    // Fetch roster data
+    const rosterRes  = await fetch(`/api/persons/${rootPerson.id}/roster-data`);
+    const { entries, rootName } = await rosterRes.json();
+    const today = new Date().toLocaleDateString();
+
+    const blob = await pdf(
+      <FamilyBook
+        rootPersonId={rootPerson.id}
+        mode={bookMode}
+        orientation={bookOrient}
+        lang={lang}
+        data={data}
+        photoUrls={photoUrls}
+        rosterEntries={entries}
+        rosterRootName={rootName}
+        rosterToday={today}
+      />
+    ).toBlob();
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement('a');
+    a.href = url;
+    a.download = `family-book-${rootPerson.lastName || rootPerson.lastNameHe}-${bookMode}-${bookOrient}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    setGeneratingBook(false);
+  }
+} // end of downloadBook
+
 
   function setSetting<K extends keyof TreeSettings>(key: K, value: TreeSettings[K]) {
     setSettings(s => ({ ...s, [key]: value }));
